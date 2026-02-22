@@ -47,8 +47,17 @@ ffmpeg をバックエンドとして利用し、ドラッグ&ドロップで手
 | macOS (Apple Silicon) | `MornAudioProcessor_x.x.x_aarch64.dmg` |
 | Windows (x64) | `MornAudioProcessor_x.x.x_x64-setup.exe` |
 
-> **Windows をお使いの方へ:** インストーラはコード署名されていないため、ダウンロード時や実行時に SmartScreen の警告が表示される場合があります。
-> 「詳細情報」をクリックし、「実行」を選択してください。
+### 初回起動時の注意
+
+本アプリはコード署名されていないため、OS のセキュリティ警告が表示されます。
+
+**macOS:** 「壊れているため開けません」と表示される場合、アプリケーションフォルダにコピー後、ターミナルで以下を実行してください。
+
+```bash
+xattr -cr /Applications/MornAudioProcessor.app
+```
+
+**Windows:** SmartScreen の警告が表示される場合、「詳細情報」→「実行」を選択してください。
 
 ### 前提条件
 
