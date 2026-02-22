@@ -6,6 +6,7 @@ import type {
   VolumeOption,
   TrimOption,
   SilenceRemoveOption,
+  NoiseReduceOption,
 } from "./types";
 
 let ffmpegInfo = $state<FfmpegInfo | null>(null);
@@ -17,6 +18,7 @@ let trim = $state<TrimOption | null>(null);
 let bitrate = $state<string>("");
 let sampleRate = $state<number | null>(null);
 let silenceRemove = $state<SilenceRemoveOption | null>(null);
+let noiseReduce = $state<NoiseReduceOption | null>(null);
 let isProcessing = $state(false);
 let processingDone = $state(false);
 let isDragging = $state(false);
@@ -76,6 +78,12 @@ export function getAppState() {
     },
     set silenceRemove(v) {
       silenceRemove = v;
+    },
+    get noiseReduce() {
+      return noiseReduce;
+    },
+    set noiseReduce(v) {
+      noiseReduce = v;
     },
     get isProcessing() {
       return isProcessing;

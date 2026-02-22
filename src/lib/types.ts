@@ -30,8 +30,13 @@ export interface TrimOption {
 export interface SilenceRemoveOption {
   remove_start: boolean;
   remove_end: boolean;
-  threshold_db: number;
+  threshold_start_db: number;
+  threshold_end_db: number;
 }
+
+export type NoiseReduceOption =
+  | { type: "afftdn"; nr: number; nf: number }
+  | { type: "anlmdn"; strength: number };
 
 export interface ProcessingOptions {
   input_file: File;
@@ -42,6 +47,7 @@ export interface ProcessingOptions {
   bitrate?: string;
   sample_rate?: number;
   silence_remove?: SilenceRemoveOption;
+  noise_reduce?: NoiseReduceOption;
 }
 
 export interface ProgressInfo {

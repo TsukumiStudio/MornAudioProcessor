@@ -6,7 +6,8 @@
   let enabled = $state(false);
   let removeStart = $state(true);
   let removeEnd = $state(true);
-  let thresholdDb = $state(-50);
+  let thresholdStartDb = $state(-50);
+  let thresholdEndDb = $state(-50);
 
   function updateSilenceRemove() {
     if (!enabled) {
@@ -15,7 +16,8 @@
       appState.silenceRemove = {
         remove_start: removeStart,
         remove_end: removeEnd,
-        threshold_db: thresholdDb,
+        threshold_start_db: thresholdStartDb,
+        threshold_end_db: thresholdEndDb,
       };
     }
   }
@@ -44,6 +46,19 @@
       />
       先頭の無音を削除
     </label>
+    <div class="threshold-setting" class:dim={!removeStart}>
+      <label for="threshold-start-input">閾値</label>
+      <input
+        id="threshold-start-input"
+        type="range"
+        bind:value={thresholdStartDb}
+        min="-60"
+        max="-20"
+        step="1"
+        disabled={!enabled || !removeStart || appState.isProcessing}
+      />
+      <span class="threshold-value">{thresholdStartDb} dB</span>
+    </div>
     <label class="checkbox-label sub">
       <input
         type="checkbox"
@@ -52,18 +67,18 @@
       />
       末尾の無音を削除
     </label>
-    <div class="threshold-setting">
-      <label for="threshold-input">閾値</label>
+    <div class="threshold-setting" class:dim={!removeEnd}>
+      <label for="threshold-end-input">閾値</label>
       <input
-        id="threshold-input"
+        id="threshold-end-input"
         type="range"
-        bind:value={thresholdDb}
+        bind:value={thresholdEndDb}
         min="-60"
         max="-20"
         step="1"
-        disabled={!enabled || appState.isProcessing}
+        disabled={!enabled || !removeEnd || appState.isProcessing}
       />
-      <span class="threshold-value">{thresholdDb} dB</span>
+      <span class="threshold-value">{thresholdEndDb} dB</span>
     </div>
   </div>
 </div>
@@ -104,6 +119,11 @@
     align-items: center;
     gap: 8px;
     margin-top: 2px;
+    padding-left: 20px;
+    transition: opacity 0.15s;
+  }
+  .threshold-setting.dim {
+    opacity: 0.35;
   }
   .threshold-setting label {
     font-size: 0.8rem;

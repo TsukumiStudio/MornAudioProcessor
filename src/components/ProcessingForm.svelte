@@ -4,6 +4,7 @@
   import BitrateSettings from "./BitrateSettings.svelte";
   import SampleRateSettings from "./SampleRateSettings.svelte";
   import SilenceRemoveSettings from "./SilenceRemoveSettings.svelte";
+  import NoiseReduceSettings from "./NoiseReduceSettings.svelte";
   import { getAppState } from "$lib/stores.svelte";
   import { processFile, downloadBlob, resetFFmpeg } from "$lib/commands";
   import type { ProcessingOptions, AudioFormat } from "$lib/types";
@@ -52,6 +53,7 @@
         bitrate: state.bitrate || undefined,
         sample_rate: state.sampleRate ?? undefined,
         silence_remove: state.silenceRemove ?? undefined,
+        noise_reduce: state.noiseReduce ?? undefined,
       };
 
       const result = await processFile(options, (progress) => {
@@ -90,6 +92,7 @@
         <FormatSettings />
         <SampleRateSettings />
         <SilenceRemoveSettings />
+        <NoiseReduceSettings />
       </div>
       <div class="settings-col">
         <BitrateSettings />
