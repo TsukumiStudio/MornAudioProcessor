@@ -1,5 +1,8 @@
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
+import { readFileSync } from "fs";
+
+const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
 
 /** @type {import('vite').Plugin} */
 const crossOriginIsolation = {
@@ -22,6 +25,9 @@ const crossOriginIsolation = {
 
 export default defineConfig({
   plugins: [crossOriginIsolation, sveltekit()],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   optimizeDeps: {
     exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/util"],
   },
