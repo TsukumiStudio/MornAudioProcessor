@@ -11,12 +11,11 @@
 
 <div class="ffmpeg-status">
   {#if info}
-    <span class="status-ok">ffmpeg: {info.version}</span>
+    <span class="status-ok">{info.version}</span>
   {:else if error}
-    <span class="status-error">ffmpegが見つかりません</span>
-    <p class="install-guide">{error}</p>
+    <span class="status-error">読み込み失敗</span>
   {:else}
-    <span class="status-loading">ffmpegを検出中...</span>
+    <span class="status-loading">読み込み中...</span>
   {/if}
 </div>
 
@@ -35,15 +34,5 @@
   }
   .status-loading {
     color: #a3a3a3;
-  }
-  .install-guide {
-    margin-top: 8px;
-    padding: 12px;
-    background: #1a1a16;
-    border-radius: 6px;
-    white-space: pre-line;
-    font-family: monospace;
-    font-size: 0.8rem;
-    color: #d4d4d8;
   }
 </style>

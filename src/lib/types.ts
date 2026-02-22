@@ -1,11 +1,9 @@
 export interface FfmpegInfo {
-  ffmpeg_path: string;
-  ffprobe_path: string;
   version: string;
 }
 
 export interface AudioFileInfo {
-  path: string;
+  name: string;
   duration_ms: number;
   format: string;
   bitrate: string | null;
@@ -31,8 +29,8 @@ export interface SilenceRemoveOption {
 }
 
 export interface ProcessingOptions {
-  input_path: string;
-  output_path: string;
+  input_file: File;
+  output_name: string;
   output_format?: AudioFormat;
   volume?: VolumeOption;
   trim?: TrimOption;
@@ -43,15 +41,14 @@ export interface ProcessingOptions {
 
 export interface ProgressInfo {
   file_name: string;
-  current_time_ms: number;
-  total_duration_ms: number;
   percentage: number;
   status: "processing" | "completed" | "error";
 }
 
 export interface ProcessingResult {
-  input_path: string;
-  output_path: string;
+  input_name: string;
+  output_name: string;
+  blob: Blob | null;
   success: boolean;
   error: string | null;
 }
@@ -59,7 +56,10 @@ export interface ProcessingResult {
 export interface FileEntry {
   id: string;
   file: AudioFileInfo;
+  sourceFile: File;
   status: "pending" | "processing" | "completed" | "error";
   progress: number;
   error?: string;
+  resultBlob?: Blob;
+  outputName?: string;
 }

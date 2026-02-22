@@ -1,90 +1,97 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { checkFfmpeg, getAudioInfo } from "$lib/commands";
+  import { initFFmpeg, getAudioInfo } from "$lib/commands";
+  import { base } from "$app/paths";
   import { getAppState } from "$lib/stores.svelte";
   import type { FileEntry } from "$lib/types";
   import FfmpegStatus from "../components/FfmpegStatus.svelte";
   import FileDropZone from "../components/FileDropZone.svelte";
   import FileList from "../components/FileList.svelte";
   import ProcessingForm from "../components/ProcessingForm.svelte";
-  import ProgressPanel from "../components/ProgressPanel.svelte";
 
-  const state = getAppState();
+  const appState = getAppState();
   const SUPPORTED_EXTENSIONS = [".mp3", ".wav", ".ogg"];
+  let loadingMessage = $state("ffmpeg.wasm を読み込み中...");
 
-  async function handleDroppedFiles(paths: string[]) {
-    for (const path of paths) {
-      const ext = path.substring(path.lastIndexOf(".")).toLowerCase();
-      if (!SUPPORTED_EXTENSIONS.includes(ext)) continue;
-      if (state.files.some((f) => f.file.path === path)) continue;
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault();
+    appState.isDragging = true;
+  }
 
-      try {
-        const info = await getAudioInfo(path);
-        const entry: FileEntry = {
-          id: crypto.randomUUID(),
-          file: info,
-          status: "pending",
-          progress: 0,
-        };
-        state.addFile(entry);
-      } catch (e) {
-        console.error(`ファイル情報取得失敗: ${path}`, e);
+  function handleDragLeave(e: DragEvent) {
+    // ウィンドウ外に出た時のみ解除
+    if (
+      e.relatedTarget === null ||
+      !(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)
+    ) {
+      appState.isDragging = false;
+    }
+  }
+
+  async function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    appState.isDragging = false;
+    if (e.dataTransfer?.files && appState.ffmpegInfo) {
+      for (const file of Array.from(e.dataTransfer.files)) {
+        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+        if (!SUPPORTED_EXTENSIONS.includes(ext)) continue;
+        if (appState.files.some((f) => f.file.name === file.name)) continue;
+        try {
+          const info = await getAudioInfo(file);
+          const entry: FileEntry = {
+            id: crypto.randomUUID(),
+            file: info,
+            sourceFile: file,
+            status: "pending",
+            progress: 0,
+          };
+          appState.addFile(entry);
+        } catch (e) {
+          console.error(`ファイル情報取得失敗: ${file.name}`, e);
+        }
       }
     }
   }
 
   onMount(async () => {
     try {
-      state.ffmpegInfo = await checkFfmpeg();
+      loadingMessage = "コアファイルをダウンロード中...";
+      appState.ffmpegInfo = await initFFmpeg((msg) => {
+        loadingMessage = msg;
+      });
     } catch (e: unknown) {
-      state.ffmpegError = String(e);
+      appState.ffmpegError = String(e);
     }
-
-    // Tauri ネイティブ drag-drop イベント
-    const unlisten = await getCurrentWindow().onDragDropEvent((event) => {
-      if (event.payload.type === "over") {
-        state.isDragging = true;
-      } else if (event.payload.type === "drop") {
-        state.isDragging = false;
-        if (state.ffmpegInfo) {
-          handleDroppedFiles(event.payload.paths);
-        }
-      } else {
-        // cancel
-        state.isDragging = false;
-      }
-    });
-
-    return () => {
-      unlisten();
-    };
   });
 </script>
 
-<main class="app">
+<main
+  class="app"
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+>
   <header>
     <div class="header-title">
-      <img src="/icon.png" alt="MornAudioProcessor" class="header-icon" />
+      <img src="{base}/icon.png" alt="MornAudioProcessor" class="header-icon" />
       <h1>MornAudioProcessor</h1>
     </div>
-    <FfmpegStatus info={state.ffmpegInfo} error={state.ffmpegError} />
+    <FfmpegStatus info={appState.ffmpegInfo} error={appState.ffmpegError} />
   </header>
 
-  {#if state.ffmpegInfo}
+  {#if appState.ffmpegInfo}
     <div class="content">
       <FileDropZone />
       <FileList />
       <ProcessingForm />
-      <ProgressPanel />
     </div>
-  {:else if state.ffmpegError}
+  {:else if appState.ffmpegError}
     <div class="error-container">
-      <p>ffmpegがインストールされていません。上記のガイドに従ってインストールしてください。</p>
+      <p>ffmpeg.wasm の読み込みに失敗しました。ページを再読み込みしてください。</p>
     </div>
   {:else}
     <div class="loading">
-      <p>読み込み中...</p>
+      <p>{loadingMessage}</p>
     </div>
   {/if}
 </main>
