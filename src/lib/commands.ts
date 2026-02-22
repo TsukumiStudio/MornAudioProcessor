@@ -155,6 +155,47 @@ async function detectVolume(
   return { peak, rms };
 }
 
+interface LufsMeasurement {
+  input_i: number;
+  input_tp: number;
+  input_lra: number;
+  input_thresh: number;
+  target_offset: number;
+}
+
+async function detectLufs(
+  ff: FFmpeg,
+  inputName: string,
+  targetI: number = -14,
+  targetTP: number = -1,
+): Promise<LufsMeasurement> {
+  let input_i = 0;
+  let input_tp = 0;
+  let input_lra = 0;
+  let input_thresh = 0;
+  let target_offset = 0;
+  const logHandler = ({ message }: { message: string }) => {
+    const iMatch = message.match(/"input_i"\s*:\s*"([-\d.]+)"/);
+    if (iMatch) input_i = parseFloat(iMatch[1]);
+    const tpMatch = message.match(/"input_tp"\s*:\s*"([-\d.]+)"/);
+    if (tpMatch) input_tp = parseFloat(tpMatch[1]);
+    const lraMatch = message.match(/"input_lra"\s*:\s*"([-\d.]+)"/);
+    if (lraMatch) input_lra = parseFloat(lraMatch[1]);
+    const threshMatch = message.match(/"input_thresh"\s*:\s*"([-\d.]+)"/);
+    if (threshMatch) input_thresh = parseFloat(threshMatch[1]);
+    const offsetMatch = message.match(/"target_offset"\s*:\s*"([-\d.]+)"/);
+    if (offsetMatch) target_offset = parseFloat(offsetMatch[1]);
+  };
+  ff.on("log", logHandler);
+  await ff.exec([
+    "-i", inputName,
+    "-af", `loudnorm=I=${targetI}:TP=${targetTP}:print_format=json`,
+    "-f", "null", "-",
+  ]);
+  ff.off("log", logHandler);
+  return { input_i, input_tp, input_lra, input_thresh, target_offset };
+}
+
 async function probeAudioInfo(
   ff: FFmpeg,
   fileName: string,
@@ -203,6 +244,24 @@ async function probeAudioInfo(
   await ff.exec(["-i", fileName, "-af", "volumedetect", "-f", "null", "-"]);
   ff.off("log", logHandler);
 
+  // LUFS計測（loudnormフィルタで Integrated Loudness を取得）
+  let lufsValue: number | null = null;
+  const lufsHandler = ({ message }: { message: string }) => {
+    const iMatch = message.match(/"input_i"\s*:\s*"([-\d.]+)"/);
+    if (iMatch) lufsValue = parseFloat(iMatch[1]);
+  };
+  ff.on("log", lufsHandler);
+  try {
+    await ff.exec([
+      "-i", fileName,
+      "-af", "loudnorm=print_format=json",
+      "-f", "null", "-",
+    ]);
+  } catch {
+    // loudnormフィルタが利用できない場合はスキップ
+  }
+  ff.off("log", lufsHandler);
+
   const ext = getFileExtension(fileName).toLowerCase();
   const estimatedBitrate =
     durationMs > 0
@@ -218,6 +277,7 @@ async function probeAudioInfo(
     channels,
     peak_db: Math.round(peakDb * 10) / 10,
     rms_db: Math.round(rmsDb * 10) / 10,
+    lufs: lufsValue !== null ? Math.round(lufsValue * 10) / 10 : null,
   };
 }
 
@@ -265,8 +325,48 @@ export async function processFile(
     const isNormalize =
       options.volume?.type === "normalize_peak" ||
       options.volume?.type === "normalize_rms";
+    const isLufsNormalize = options.volume?.type === "normalize_lufs";
 
-    if (isNormalize) {
+    if (isLufsNormalize) {
+      // LUFS正規化（loudnorm 2パスモード）:
+      // 1. 音量以外のフィルタを適用した中間WAVを生成
+      // 2. loudnorm で計測
+      // 3. 計測値を使って loudnorm 2パス目を実行（linear mode）
+      const tempName = "temp_intermediate.wav";
+      const intermediateOptions: ProcessingOptions = {
+        ...options,
+        output_name: tempName,
+        volume: undefined,
+      };
+      const intermediateArgs = buildFFmpegArgs(intermediateOptions);
+      await ff.exec(intermediateArgs);
+
+      const vol = options.volume!;
+      const targetLufs = vol.type === "normalize_lufs" ? (vol.target_lufs ?? -14) : -14;
+      const targetTP = -1;
+
+      const measurement = await detectLufs(ff, tempName, targetLufs, targetTP);
+
+      // loudnorm 2パス目: 計測値を使った線形正規化
+      const loudnormFilter = [
+        `loudnorm=I=${targetLufs}`,
+        `TP=${targetTP}`,
+        `measured_I=${measurement.input_i}`,
+        `measured_TP=${measurement.input_tp}`,
+        `measured_LRA=${measurement.input_lra}`,
+        `measured_thresh=${measurement.input_thresh}`,
+        `offset=${measurement.target_offset}`,
+        `linear=true`,
+      ].join(":");
+
+      const finalArgs = ["-i", tempName, "-af", loudnormFilter];
+      if (options.bitrate) finalArgs.push("-b:a", options.bitrate);
+      if (options.sample_rate) finalArgs.push("-ar", options.sample_rate.toString());
+      finalArgs.push("-y", outputName);
+      await ff.exec(finalArgs);
+
+      await ff.deleteFile(tempName);
+    } else if (isNormalize) {
       // 正規化（補正パス付き）:
       // 1. 音量以外のフィルタを適用した中間WAVを生成
       // 2. 中間ファイルのピーク/RMSを計測し音量調整して出力

@@ -3,9 +3,10 @@
 
   const appState = getAppState();
 
-  let mode = $state<"none" | "peak" | "rms" | "adjust">("none");
+  let mode = $state<"none" | "peak" | "rms" | "lufs" | "adjust">("none");
   let targetPeakDb = $state(-1);
   let targetRmsDb = $state(-20);
+  let targetLufs = $state(-14);
   let adjustDb = $state(0);
 
   function updateVolume() {
@@ -13,6 +14,8 @@
       appState.volume = { type: "normalize_peak", target_db: targetPeakDb };
     } else if (mode === "rms") {
       appState.volume = { type: "normalize_rms", target_db: targetRmsDb };
+    } else if (mode === "lufs") {
+      appState.volume = { type: "normalize_lufs", target_lufs: targetLufs };
     } else if (mode === "adjust") {
       appState.volume = { type: "adjust", db: adjustDb };
     } else {
@@ -62,6 +65,16 @@
       <input
         type="radio"
         name="volume"
+        value="lufs"
+        bind:group={mode}
+        disabled={appState.isProcessing}
+      />
+      LUFS正規化
+    </label>
+    <label class="radio-label">
+      <input
+        type="radio"
+        name="volume"
         value="adjust"
         bind:group={mode}
         disabled={appState.isProcessing}
@@ -95,6 +108,22 @@
         step="1"
         disabled={appState.isProcessing}
       />
+    </div>
+  {:else if mode === "lufs"}
+    <div class="sub-setting">
+      <label for="lufs-input">目標LUFS</label>
+      <input
+        id="lufs-input"
+        type="number"
+        bind:value={targetLufs}
+        min="-30"
+        max="-5"
+        step="1"
+        disabled={appState.isProcessing}
+      />
+    </div>
+    <div class="tips">
+      LUFSはEBU R128規格に基づくラウドネス計測値です。数秒以下の短い音声（効果音等）では正確に計測できないため、Peak/RMS正規化の使用を推奨します。
     </div>
   {:else if mode === "adjust"}
     <div class="sub-setting">
@@ -154,5 +183,15 @@
     background: #1a1a17;
     color: #e4e4e7;
     font-size: 0.85rem;
+  }
+  .tips {
+    font-size: 0.75rem;
+    color: #a3a825;
+    background: #a3a82510;
+    border: 1px solid #a3a82530;
+    border-radius: 6px;
+    padding: 8px 10px;
+    line-height: 1.5;
+    margin-top: 2px;
   }
 </style>

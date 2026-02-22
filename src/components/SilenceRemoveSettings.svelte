@@ -35,39 +35,37 @@
     無音削除
   </label>
 
-  {#if enabled}
-    <div class="sub-options">
-      <label class="checkbox-label sub">
-        <input
-          type="checkbox"
-          bind:checked={removeStart}
-          disabled={appState.isProcessing}
-        />
-        先頭の無音を削除
-      </label>
-      <label class="checkbox-label sub">
-        <input
-          type="checkbox"
-          bind:checked={removeEnd}
-          disabled={appState.isProcessing}
-        />
-        末尾の無音を削除
-      </label>
-      <div class="threshold-setting">
-        <label for="threshold-input">閾値</label>
-        <input
-          id="threshold-input"
-          type="range"
-          bind:value={thresholdDb}
-          min="-60"
-          max="-20"
-          step="1"
-          disabled={appState.isProcessing}
-        />
-        <span class="threshold-value">{thresholdDb} dB</span>
-      </div>
+  <div class="sub-options" class:disabled={!enabled}>
+    <label class="checkbox-label sub">
+      <input
+        type="checkbox"
+        bind:checked={removeStart}
+        disabled={!enabled || appState.isProcessing}
+      />
+      先頭の無音を削除
+    </label>
+    <label class="checkbox-label sub">
+      <input
+        type="checkbox"
+        bind:checked={removeEnd}
+        disabled={!enabled || appState.isProcessing}
+      />
+      末尾の無音を削除
+    </label>
+    <div class="threshold-setting">
+      <label for="threshold-input">閾値</label>
+      <input
+        id="threshold-input"
+        type="range"
+        bind:value={thresholdDb}
+        min="-60"
+        max="-20"
+        step="1"
+        disabled={!enabled || appState.isProcessing}
+      />
+      <span class="threshold-value">{thresholdDb} dB</span>
     </div>
-  {/if}
+  </div>
 </div>
 
 <style>
@@ -95,6 +93,11 @@
     flex-direction: column;
     gap: 6px;
     padding-left: 4px;
+    transition: opacity 0.15s;
+  }
+  .sub-options.disabled {
+    opacity: 0.35;
+    pointer-events: none;
   }
   .threshold-setting {
     display: flex;

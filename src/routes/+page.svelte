@@ -110,7 +110,7 @@
   }
 
   .app {
-    max-width: 1100px;
+    max-width: 1300px;
     margin: 0 auto;
     padding: 24px;
     display: flex;
