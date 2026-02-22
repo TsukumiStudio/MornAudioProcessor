@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { FileEntry } from "$lib/types";
   import { formatDuration, formatBitrate, formatSampleRate } from "$lib/utils";
-  import { playPreview, stopPreview, isCurrentlyPlaying } from "$lib/commands";
+  import { playPreview, stopPreview } from "$lib/commands";
 
   interface Props {
     entry: FileEntry;
@@ -10,16 +10,14 @@
   }
 
   let { entry, onRemove, disabled }: Props = $props();
-  let audioRef: HTMLAudioElement | null = $state(null);
   let playing = $state(false);
 
   function togglePlay() {
     if (playing) {
       stopPreview();
     } else {
-      audioRef = playPreview(entry.sourceFile, () => {
+      playPreview(entry.sourceFile, () => {
         playing = false;
-        audioRef = null;
       });
       playing = true;
     }

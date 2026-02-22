@@ -44,7 +44,7 @@ export async function initFFmpeg(
   return { version: "ffmpeg.wasm" };
 }
 
-export function getFFmpeg(): FFmpeg {
+function getFFmpeg(): FFmpeg {
   if (!ffmpeg) throw new Error("FFmpeg not initialized");
   return ffmpeg;
 }
@@ -252,10 +252,7 @@ let currentAudio: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
 let onStopCallback: (() => void) | null = null;
 
-export function playPreview(
-  source: File | Blob,
-  onEnded: () => void,
-): HTMLAudioElement {
+export function playPreview(source: File | Blob, onEnded: () => void) {
   stopPreview();
   const url = URL.createObjectURL(source);
   const audio = new Audio(url);
@@ -264,7 +261,6 @@ export function playPreview(
   onStopCallback = onEnded;
   audio.onended = () => stopPreview();
   audio.play();
-  return audio;
 }
 
 export function stopPreview() {
@@ -283,6 +279,3 @@ export function stopPreview() {
   }
 }
 
-export function isCurrentlyPlaying(audio: HTMLAudioElement | null): boolean {
-  return audio !== null && currentAudio === audio;
-}
