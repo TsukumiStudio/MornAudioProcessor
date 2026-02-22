@@ -45,7 +45,10 @@ ffmpeg をバックエンドとして利用し、ドラッグ&ドロップで手
 | OS | ファイル |
 |---|---|
 | macOS (Apple Silicon) | `MornAudioProcessor_x.x.x_aarch64.dmg` |
-| Windows (x64) | `MornAudioProcessor_x.x.x_x64-setup.exe` または `.msi` |
+| Windows (x64) | `MornAudioProcessor_x.x.x_x64-setup.exe` |
+
+> **Windows をお使いの方へ:** インストーラはコード署名されていないため、ダウンロード時や実行時に SmartScreen の警告が表示される場合があります。
+> 「詳細情報」をクリックし、「実行」を選択してください。
 
 ### 前提条件
 
