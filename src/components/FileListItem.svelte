@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { FileEntry } from "$lib/types";
   import { formatDuration, formatBitrate, formatSampleRate } from "$lib/utils";
+  import { playPreview, stopPreview, isCurrentlyPlaying } from "$lib/commands";
 
   interface Props {
     entry: FileEntry;
@@ -9,9 +10,30 @@
   }
 
   let { entry, onRemove, disabled }: Props = $props();
+  let audioRef: HTMLAudioElement | null = $state(null);
+  let playing = $state(false);
+
+  function togglePlay() {
+    if (playing) {
+      stopPreview();
+    } else {
+      audioRef = playPreview(entry.sourceFile, () => {
+        playing = false;
+        audioRef = null;
+      });
+      playing = true;
+    }
+  }
 </script>
 
 <div class="file-item">
+  <button
+    class="play-btn"
+    onclick={togglePlay}
+    title={playing ? "停止" : "再生"}
+  >
+    {#if playing}&#9632;{:else}&#9654;{/if}
+  </button>
   <div class="file-info">
     <span class="file-name">{entry.file.name}</span>
     <span class="file-meta">
@@ -55,6 +77,22 @@
   .file-meta {
     font-size: 0.75rem;
     color: #737373;
+  }
+  .play-btn {
+    background: none;
+    border: 1px solid #3f3f36;
+    color: #a3a825;
+    font-size: 0.7rem;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    box-shadow: none;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .play-btn:hover {
+    background: #a3a82522;
+    border-color: #a3a825;
   }
   .remove-btn {
     background: none;

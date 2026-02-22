@@ -246,3 +246,43 @@ export function downloadBlob(blob: Blob, fileName: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// オーディオプレビュー再生（同時に1つだけ再生）
+let currentAudio: HTMLAudioElement | null = null;
+let currentUrl: string | null = null;
+let onStopCallback: (() => void) | null = null;
+
+export function playPreview(
+  source: File | Blob,
+  onEnded: () => void,
+): HTMLAudioElement {
+  stopPreview();
+  const url = URL.createObjectURL(source);
+  const audio = new Audio(url);
+  currentAudio = audio;
+  currentUrl = url;
+  onStopCallback = onEnded;
+  audio.onended = () => stopPreview();
+  audio.play();
+  return audio;
+}
+
+export function stopPreview() {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.onended = null;
+    currentAudio = null;
+  }
+  if (currentUrl) {
+    URL.revokeObjectURL(currentUrl);
+    currentUrl = null;
+  }
+  if (onStopCallback) {
+    onStopCallback();
+    onStopCallback = null;
+  }
+}
+
+export function isCurrentlyPlaying(audio: HTMLAudioElement | null): boolean {
+  return audio !== null && currentAudio === audio;
+}

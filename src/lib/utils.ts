@@ -16,8 +16,7 @@ export function formatSampleRate(sampleRate: string | null): string {
 
 export function formatBitrate(bitrate: string | null): string {
   if (!bitrate) return "-";
-  const kbps = Math.round(parseInt(bitrate) / 1000);
-  return `${kbps}kbps`;
+  return bitrate;
 }
 
 export function getFileExtension(path: string): string {
