@@ -10,12 +10,14 @@ export interface AudioFileInfo {
   sample_rate: string | null;
   channels: number | null;
   peak_db: number | null;
+  rms_db: number | null;
 }
 
 export type AudioFormat = "mp3" | "wav" | "ogg";
 
 export type VolumeOption =
-  | { type: "normalize"; target_lufs?: number }
+  | { type: "normalize_peak"; target_db?: number }
+  | { type: "normalize_rms"; target_db?: number }
   | { type: "adjust"; db: number };
 
 export interface TrimOption {

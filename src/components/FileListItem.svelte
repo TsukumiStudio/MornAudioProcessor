@@ -35,7 +35,7 @@
   <div class="file-info">
     <span class="file-name">{entry.file.name}</span>
     <span class="file-meta">
-      {formatDuration(entry.file.duration_ms, 2)} | {formatBitrate(entry.file.bitrate)} | {formatSampleRate(entry.file.sample_rate)} | Peak: {formatPeakDb(entry.file.peak_db)}
+      {formatDuration(entry.file.duration_ms, 2)} | {formatBitrate(entry.file.bitrate)} | {formatSampleRate(entry.file.sample_rate)} | Peak: <span class:clipping={entry.file.peak_db !== null && entry.file.peak_db >= 0}>{formatPeakDb(entry.file.peak_db)}</span> | RMS: {formatPeakDb(entry.file.rms_db)}
     </span>
   </div>
 
@@ -75,6 +75,10 @@
   .file-meta {
     font-size: 0.75rem;
     color: #737373;
+  }
+  .clipping {
+    color: #ef4444;
+    font-weight: 600;
   }
   .play-btn {
     background: none;

@@ -49,6 +49,21 @@ function getFFmpeg(): FFmpeg {
   return ffmpeg;
 }
 
+export async function resetFFmpeg(): Promise<void> {
+  if (ffmpeg) {
+    ffmpeg.terminate();
+  }
+  ffmpeg = new FFmpeg();
+  ffmpeg.on("log", ({ message }) => {
+    console.log("[ffmpeg]", message);
+  });
+  await ffmpeg.load({
+    coreURL: `${base}/ffmpeg-core.js`,
+    wasmURL: `${base}/ffmpeg-core.wasm`,
+    classWorkerURL: `${base}/ffmpeg-worker/worker.js`,
+  });
+}
+
 export async function getAudioInfo(file: File): Promise<AudioFileInfo> {
   const ff = getFFmpeg();
   const tempName = "probe_input" + getExtWithDot(file.name);
@@ -122,21 +137,22 @@ function getExtWithDot(name: string): string {
   return dot >= 0 ? name.substring(dot) : "";
 }
 
-async function detectPeakVolume(
+async function detectVolume(
   ff: FFmpeg,
   inputName: string,
-): Promise<number> {
-  let maxVolume = 0;
+): Promise<{ peak: number; rms: number }> {
+  let peak = 0;
+  let rms = 0;
   const logHandler = ({ message }: { message: string }) => {
-    const match = message.match(/max_volume:\s*([-\d.]+)\s*dB/);
-    if (match) {
-      maxVolume = parseFloat(match[1]);
-    }
+    const peakMatch = message.match(/max_volume:\s*([-\d.]+)\s*dB/);
+    if (peakMatch) peak = parseFloat(peakMatch[1]);
+    const rmsMatch = message.match(/mean_volume:\s*([-\d.]+)\s*dB/);
+    if (rmsMatch) rms = parseFloat(rmsMatch[1]);
   };
   ff.on("log", logHandler);
   await ff.exec(["-i", inputName, "-af", "volumedetect", "-f", "null", "-"]);
   ff.off("log", logHandler);
-  return maxVolume;
+  return { peak, rms };
 }
 
 async function probeAudioInfo(
@@ -149,6 +165,7 @@ async function probeAudioInfo(
   let channels: number | null = null;
   let bitrate: string | null = null;
   let peakDb = 0;
+  let rmsDb = 0;
 
   const logHandler = ({ message }: { message: string }) => {
     // Duration: 00:00:03.25
@@ -175,6 +192,11 @@ async function probeAudioInfo(
     if (volMatch) {
       peakDb = parseFloat(volMatch[1]);
     }
+    // mean_volume (RMS)
+    const rmsMatch = message.match(/mean_volume:\s*([-\d.]+)\s*dB/);
+    if (rmsMatch) {
+      rmsDb = parseFloat(rmsMatch[1]);
+    }
   };
 
   ff.on("log", logHandler);
@@ -195,6 +217,7 @@ async function probeAudioInfo(
     sample_rate: sampleRate,
     channels,
     peak_db: Math.round(peakDb * 10) / 10,
+    rms_db: Math.round(rmsDb * 10) / 10,
   };
 }
 
@@ -239,21 +262,62 @@ export async function processFile(
     // ファイル書き込み
     await ff.writeFile(inputName, await fetchFile(options.input_file));
 
-    // 正規化の場合: ピーク音量を測定して adjust に変換
-    let effectiveOptions = options;
-    if (options.volume?.type === "normalize") {
-      const targetPeak = options.volume.target_lufs ?? -1;
-      const maxVolume = await detectPeakVolume(ff, inputName);
-      const adjustment = targetPeak - maxVolume;
-      effectiveOptions = {
-        ...options,
-        volume: { type: "adjust", db: Math.round(adjustment * 10) / 10 },
-      };
-    }
+    const isNormalize =
+      options.volume?.type === "normalize_peak" ||
+      options.volume?.type === "normalize_rms";
 
-    // ffmpeg 実行
-    const args = buildFFmpegArgs(effectiveOptions);
-    await ff.exec(args);
+    if (isNormalize) {
+      // 正規化（補正パス付き）:
+      // 1. 音量以外のフィルタを適用した中間WAVを生成
+      // 2. 中間ファイルのピーク/RMSを計測し音量調整して出力
+      // 3. 出力を実測し、ズレがあれば補正して再出力
+      const tempName = "temp_intermediate.wav";
+      const intermediateOptions: ProcessingOptions = {
+        ...options,
+        output_name: tempName,
+        volume: undefined,
+      };
+      const intermediateArgs = buildFFmpegArgs(intermediateOptions);
+      await ff.exec(intermediateArgs);
+
+      const vol = options.volume!;
+      const targetDb = (vol.type === "normalize_peak" || vol.type === "normalize_rms")
+        ? (vol.target_db ?? -1)
+        : -1;
+      const measured = await detectVolume(ff, tempName);
+      const currentValue =
+        vol.type === "normalize_rms" ? measured.rms : measured.peak;
+      const adjustment = targetDb - currentValue;
+
+      const buildFinalArgs = (db: number) => {
+        const args = ["-i", tempName, "-af", `volume=${db}dB`];
+        if (options.bitrate) args.push("-b:a", options.bitrate);
+        if (options.sample_rate) args.push("-ar", options.sample_rate.toString());
+        args.push("-y", outputName);
+        return args;
+      };
+
+      // 初回エンコード
+      let appliedDb = Math.round(adjustment * 100) / 100;
+      await ff.exec(buildFinalArgs(appliedDb));
+
+      // 補正パス（最大2回）: ロッシー形式でズレていたら再エンコード
+      for (let pass = 0; pass < 2; pass++) {
+        const actual = await detectVolume(ff, outputName);
+        const actualValue =
+          vol.type === "normalize_rms" ? actual.rms : actual.peak;
+        const error = targetDb - actualValue;
+        if (Math.abs(error) <= 0.1) break;
+        appliedDb = Math.round((appliedDb + error) * 100) / 100;
+        await ff.exec(buildFinalArgs(appliedDb));
+      }
+
+      await ff.deleteFile(tempName);
+    } else {
+      // 通常処理: 1パス
+      const args = buildFFmpegArgs(options);
+      await ff.exec(args);
+    }
 
     // 結果読み込み
     const data = await ff.readFile(outputName);

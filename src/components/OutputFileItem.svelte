@@ -53,7 +53,7 @@
       </div>
     {:else if entry.status === "completed" && entry.outputInfo}
       <span class="file-meta">
-        {formatDuration(entry.outputInfo.duration_ms, 2)} | {formatBitrate(entry.outputInfo.bitrate)} | {formatSampleRate(entry.outputInfo.sample_rate)} | Peak: {formatPeakDb(entry.outputInfo.peak_db)}
+        {formatDuration(entry.outputInfo.duration_ms, 2)} | {formatBitrate(entry.outputInfo.bitrate)} | {formatSampleRate(entry.outputInfo.sample_rate)} | Peak: <span class:clipping={entry.outputInfo.peak_db !== null && entry.outputInfo.peak_db >= 0}>{formatPeakDb(entry.outputInfo.peak_db)}</span> | RMS: {formatPeakDb(entry.outputInfo.rms_db)}
       </span>
     {/if}
   </div>
@@ -102,6 +102,10 @@
   .file-meta {
     font-size: 0.75rem;
     color: #737373;
+  }
+  .clipping {
+    color: #ef4444;
+    font-weight: 600;
   }
   .progress-row {
     display: flex;
