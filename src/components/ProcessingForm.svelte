@@ -5,37 +5,21 @@
   import BitrateSettings from "./BitrateSettings.svelte";
   import SampleRateSettings from "./SampleRateSettings.svelte";
   import SilenceRemoveSettings from "./SilenceRemoveSettings.svelte";
-  import OutputSettings from "./OutputSettings.svelte";
   import { getAppState } from "$lib/stores.svelte";
-  import { processFiles } from "$lib/commands";
+  import { processFile, downloadBlob } from "$lib/commands";
   import type { ProcessingOptions, AudioFormat } from "$lib/types";
-  import {
-    getFileExtension,
-    getDirectory,
-    getFileName,
-    replaceExtension,
-  } from "$lib/utils";
+  import { getFileExtension, replaceExtension } from "$lib/utils";
 
   const state = getAppState();
 
-  function buildOutputPath(inputPath: string): string {
-    const dir = state.outputDirectory || getDirectory(inputPath);
-    const fileName = getFileName(inputPath);
-    const sep = inputPath.includes("\\") ? "\\" : "/";
-
-    let outputName: string;
+  function buildOutputName(inputName: string): string {
     if (state.outputFormat !== "same") {
-      outputName = replaceExtension(fileName, state.outputFormat);
+      return replaceExtension(inputName, state.outputFormat);
     } else {
-      const ext = getFileExtension(fileName);
-      const base = fileName.substring(
-        0,
-        fileName.length - ext.length - 1,
-      );
-      outputName = `${base}_processed.${ext}`;
+      const ext = getFileExtension(inputName);
+      const base = inputName.substring(0, inputName.length - ext.length - 1);
+      return `${base}_processed.${ext}`;
     }
-
-    return `${dir}${sep}${outputName}`;
   }
 
   async function startProcessing() {
@@ -48,24 +32,27 @@
       status: "pending" as const,
       progress: 0,
       error: undefined,
+      resultBlob: undefined,
+      outputName: buildOutputName(f.file.name),
     }));
 
-    const options: ProcessingOptions[] = state.files.map((entry) => ({
-      input_path: entry.file.path,
-      output_path: buildOutputPath(entry.file.path),
-      output_format:
-        state.outputFormat === "same"
-          ? undefined
-          : (state.outputFormat as AudioFormat),
-      volume: state.volume ?? undefined,
-      trim: state.trim ?? undefined,
-      bitrate: state.bitrate || undefined,
-      sample_rate: state.sampleRate ?? undefined,
-      silence_remove: state.silenceRemove ?? undefined,
-    }));
+    for (const entry of state.files) {
+      const outputName = entry.outputName!;
+      const options: ProcessingOptions = {
+        input_file: entry.sourceFile,
+        output_name: outputName,
+        output_format:
+          state.outputFormat === "same"
+            ? undefined
+            : (state.outputFormat as AudioFormat),
+        volume: state.volume ?? undefined,
+        trim: state.trim ?? undefined,
+        bitrate: state.bitrate || undefined,
+        sample_rate: state.sampleRate ?? undefined,
+        silence_remove: state.silenceRemove ?? undefined,
+      };
 
-    try {
-      const results = await processFiles(options, (progress) => {
+      const result = await processFile(options, (progress) => {
         state.updateFileProgress(
           progress.file_name,
           progress.percentage,
@@ -73,17 +60,22 @@
         );
       });
 
-      for (const result of results) {
-        if (!result.success && result.error) {
-          const fileName = getFileName(result.input_path);
-          state.updateFileError(fileName, result.error);
-        }
+      if (result.success && result.blob) {
+        state.setFileResult(entry.id, result.blob, outputName);
+      } else if (result.error) {
+        state.updateFileError(entry.file.name, result.error);
       }
-    } catch (e) {
-      console.error("処理エラー:", e);
-    } finally {
-      state.isProcessing = false;
-      state.processingDone = true;
+    }
+
+    state.isProcessing = false;
+    state.processingDone = true;
+  }
+
+  function downloadAll() {
+    for (const entry of state.files) {
+      if (entry.resultBlob && entry.outputName) {
+        downloadBlob(entry.resultBlob, entry.outputName);
+      }
     }
   }
 </script>
@@ -99,7 +91,6 @@
       <TrimSettings />
       <SilenceRemoveSettings />
     </div>
-    <OutputSettings />
     <div class="actions">
       <button
         class="clear-btn"
@@ -108,6 +99,11 @@
       >
         全てクリア
       </button>
+      {#if state.processingDone && state.files.some((f) => f.resultBlob)}
+        <button class="download-btn" onclick={downloadAll}>
+          全てダウンロード
+        </button>
+      {/if}
       <button
         class="start-btn"
         onclick={startProcessing}
@@ -160,6 +156,20 @@
     background: #3f3f36;
     color: #e4e4e7;
   }
+  .download-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: 1px solid #22c55e33;
+    background: #22c55e22;
+    color: #22c55e;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  .download-btn:hover {
+    background: #22c55e33;
+  }
   .start-btn {
     padding: 10px 32px;
     border-radius: 8px;
@@ -170,6 +180,7 @@
     font-weight: 600;
     cursor: pointer;
     box-shadow: none;
+    margin-left: auto;
   }
   .start-btn:hover:not(:disabled) {
     background: #8a8c2a;

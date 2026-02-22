@@ -16,7 +16,6 @@ let trim = $state<TrimOption | null>(null);
 let bitrate = $state<string>("");
 let sampleRate = $state<number | null>(null);
 let silenceRemove = $state<SilenceRemoveOption | null>(null);
-let outputDirectory = $state<string>("");
 let isProcessing = $state(false);
 let processingDone = $state(false);
 let isDragging = $state(false);
@@ -77,12 +76,6 @@ export function getAppState() {
     set silenceRemove(v) {
       silenceRemove = v;
     },
-    get outputDirectory() {
-      return outputDirectory;
-    },
-    set outputDirectory(v) {
-      outputDirectory = v;
-    },
     get isProcessing() {
       return isProcessing;
     },
@@ -129,14 +122,19 @@ export function getAppState() {
       status: FileEntry["status"],
     ) {
       files = files.map((f) =>
-        f.file.path.endsWith(fileName) ? { ...f, progress, status } : f,
+        f.file.name === fileName ? { ...f, progress, status } : f,
       );
     },
     updateFileError(fileName: string, error: string) {
       files = files.map((f) =>
-        f.file.path.endsWith(fileName)
+        f.file.name === fileName
           ? { ...f, status: "error" as const, error }
           : f,
+      );
+    },
+    setFileResult(id: string, blob: Blob, outputName: string) {
+      files = files.map((f) =>
+        f.id === id ? { ...f, resultBlob: blob, outputName } : f,
       );
     },
   };

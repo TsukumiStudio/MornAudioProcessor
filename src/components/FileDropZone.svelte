@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { open } from "@tauri-apps/plugin-dialog";
   import { getAudioInfo } from "$lib/commands";
   import { getAppState } from "$lib/stores.svelte";
   import type { FileEntry } from "$lib/types";
@@ -8,43 +7,54 @@
 
   const SUPPORTED_EXTENSIONS = [".mp3", ".wav", ".ogg"];
 
-  export async function addFiles(paths: string[]) {
-    for (const path of paths) {
-      const ext = path.substring(path.lastIndexOf(".")).toLowerCase();
+  let fileInput: HTMLInputElement;
+
+  async function addFilesFromInput(fileList: FileList | File[]) {
+    const filesArray = Array.from(fileList);
+    for (const file of filesArray) {
+      const ext = file.name
+        .substring(file.name.lastIndexOf("."))
+        .toLowerCase();
       if (!SUPPORTED_EXTENSIONS.includes(ext)) continue;
-      if (appState.files.some((f) => f.file.path === path)) continue;
+      if (appState.files.some((f) => f.file.name === file.name)) continue;
 
       try {
-        const info = await getAudioInfo(path);
+        const info = await getAudioInfo(file);
         const entry: FileEntry = {
           id: crypto.randomUUID(),
           file: info,
+          sourceFile: file,
           status: "pending",
           progress: 0,
         };
         appState.addFile(entry);
       } catch (e) {
-        console.error(`ファイル情報取得失敗: ${path}`, e);
+        console.error(`ファイル情報取得失敗: ${file.name}`, e);
       }
     }
   }
 
-  async function openFileDialog() {
-    const selected = await open({
-      multiple: true,
-      filters: [
-        {
-          name: "Audio",
-          extensions: ["mp3", "wav", "ogg"],
-        },
-      ],
-    });
-    if (selected) {
-      const paths = Array.isArray(selected) ? selected : [selected];
-      await addFiles(paths);
+  function handleFileInput(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      addFilesFromInput(input.files);
+      input.value = "";
     }
   }
+
+  function openFileDialog() {
+    fileInput.click();
+  }
 </script>
+
+<input
+  bind:this={fileInput}
+  type="file"
+  multiple
+  accept=".mp3,.wav,.ogg"
+  onchange={handleFileInput}
+  style="display: none;"
+/>
 
 <div
   class="dropzone"
