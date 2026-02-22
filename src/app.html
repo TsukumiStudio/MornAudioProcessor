@@ -5,7 +5,13 @@
     <link rel="icon" href="%sveltekit.assets%/icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MornAudioProcessor</title>
-    <script src="%sveltekit.assets%/coi-serviceworker.js"></script>
+    <script>
+      if (window.location.hostname !== "localhost") {
+        const s = document.createElement("script");
+        s.src = "%sveltekit.assets%/coi-serviceworker.js";
+        document.head.appendChild(s);
+      }
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

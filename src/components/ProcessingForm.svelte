@@ -61,7 +61,7 @@
       });
 
       if (result.success && result.blob) {
-        state.setFileResult(entry.id, result.blob, outputName);
+        state.setFileResult(entry.id, result.blob, outputName, result.outputInfo ?? undefined);
       } else if (result.error) {
         state.updateFileError(entry.file.name, result.error);
       }

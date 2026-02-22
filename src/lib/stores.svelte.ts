@@ -1,6 +1,7 @@
 import type {
   FileEntry,
   FfmpegInfo,
+  AudioFileInfo,
   AudioFormat,
   VolumeOption,
   TrimOption,
@@ -120,9 +121,14 @@ export function getAppState() {
           : f,
       );
     },
-    setFileResult(id: string, blob: Blob, outputName: string) {
+    setFileResult(
+      id: string,
+      blob: Blob,
+      outputName: string,
+      outputInfo?: AudioFileInfo,
+    ) {
       files = files.map((f) =>
-        f.id === id ? { ...f, resultBlob: blob, outputName } : f,
+        f.id === id ? { ...f, resultBlob: blob, outputName, outputInfo } : f,
       );
     },
   };

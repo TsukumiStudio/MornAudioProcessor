@@ -4,7 +4,7 @@
   const appState = getAppState();
 
   let mode = $state<"none" | "normalize" | "adjust">("none");
-  let targetLufs = $state(-16);
+  let targetLufs = $state(-1);
   let adjustDb = $state(0);
 
   function updateVolume() {
@@ -59,7 +59,7 @@
 
   {#if mode === "normalize"}
     <div class="sub-setting">
-      <label for="lufs-input">ターゲット LUFS</label>
+      <label for="lufs-input">ピーク (dB)</label>
       <input
         id="lufs-input"
         type="number"

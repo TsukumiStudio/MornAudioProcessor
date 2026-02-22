@@ -50,35 +50,14 @@ function getFFmpeg(): FFmpeg {
 }
 
 export async function getAudioInfo(file: File): Promise<AudioFileInfo> {
-  const ext = getFileExtension(file.name).toLowerCase();
-  const format = ext || "unknown";
+  const ff = getFFmpeg();
+  const tempName = "probe_input" + getExtWithDot(file.name);
 
-  // Web Audio API で duration と sampleRate を取得
-  const arrayBuffer = await file.arrayBuffer();
-  const audioCtx = new AudioContext();
-  try {
-    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-    const durationMs = Math.round(audioBuffer.duration * 1000);
-    const sampleRate = audioBuffer.sampleRate.toString();
-    const channels = audioBuffer.numberOfChannels;
+  await ff.writeFile(tempName, await fetchFile(file));
+  const info = await probeAudioInfo(ff, tempName, file.size);
+  await ff.deleteFile(tempName);
 
-    // ビットレート推定: ファイルサイズ / 再生時間
-    const bitrate =
-      audioBuffer.duration > 0
-        ? Math.round((file.size * 8) / audioBuffer.duration / 1000) + "kbps"
-        : null;
-
-    return {
-      name: file.name,
-      duration_ms: durationMs,
-      format,
-      bitrate,
-      sample_rate: sampleRate,
-      channels,
-    };
-  } finally {
-    await audioCtx.close();
-  }
+  return { ...info, name: file.name };
 }
 
 function buildFFmpegArgs(options: ProcessingOptions): string[] {
@@ -114,10 +93,8 @@ function buildFFmpegArgs(options: ProcessingOptions): string[] {
   }
 
   if (options.volume) {
-    if (options.volume.type === "normalize") {
-      const lufs = options.volume.target_lufs ?? -16;
-      filters.push(`loudnorm=I=${lufs}`);
-    } else {
+    // normalize の場合は processFile 側で2パス処理し、adjust に変換済み
+    if (options.volume.type === "adjust") {
       filters.push(`volume=${options.volume.db}dB`);
     }
   }
@@ -143,6 +120,82 @@ function buildFFmpegArgs(options: ProcessingOptions): string[] {
 function getExtWithDot(name: string): string {
   const dot = name.lastIndexOf(".");
   return dot >= 0 ? name.substring(dot) : "";
+}
+
+async function detectPeakVolume(
+  ff: FFmpeg,
+  inputName: string,
+): Promise<number> {
+  let maxVolume = 0;
+  const logHandler = ({ message }: { message: string }) => {
+    const match = message.match(/max_volume:\s*([-\d.]+)\s*dB/);
+    if (match) {
+      maxVolume = parseFloat(match[1]);
+    }
+  };
+  ff.on("log", logHandler);
+  await ff.exec(["-i", inputName, "-af", "volumedetect", "-f", "null", "-"]);
+  ff.off("log", logHandler);
+  return maxVolume;
+}
+
+async function probeAudioInfo(
+  ff: FFmpeg,
+  fileName: string,
+  blobSize: number,
+): Promise<AudioFileInfo> {
+  let durationMs = 0;
+  let sampleRate: string | null = null;
+  let channels: number | null = null;
+  let bitrate: string | null = null;
+  let peakDb = 0;
+
+  const logHandler = ({ message }: { message: string }) => {
+    // Duration: 00:00:03.25
+    const durMatch = message.match(
+      /Duration:\s*(\d+):(\d+):(\d+)\.(\d+)/,
+    );
+    if (durMatch) {
+      const h = parseInt(durMatch[1]);
+      const m = parseInt(durMatch[2]);
+      const s = parseInt(durMatch[3]);
+      const cs = parseInt(durMatch[4].padEnd(2, "0").substring(0, 2));
+      durationMs = (h * 3600 + m * 60 + s) * 1000 + cs * 10;
+    }
+    // Stream: 44100 Hz, stereo/mono
+    const streamMatch = message.match(
+      /Audio:.*?,\s*(\d+)\s*Hz,\s*(\w+)/,
+    );
+    if (streamMatch) {
+      sampleRate = streamMatch[1];
+      channels = streamMatch[2] === "mono" ? 1 : 2;
+    }
+    // max_volume
+    const volMatch = message.match(/max_volume:\s*([-\d.]+)\s*dB/);
+    if (volMatch) {
+      peakDb = parseFloat(volMatch[1]);
+    }
+  };
+
+  ff.on("log", logHandler);
+  await ff.exec(["-i", fileName, "-af", "volumedetect", "-f", "null", "-"]);
+  ff.off("log", logHandler);
+
+  const ext = getFileExtension(fileName).toLowerCase();
+  const estimatedBitrate =
+    durationMs > 0
+      ? Math.round((blobSize * 8) / (durationMs / 1000) / 1000) + "kbps"
+      : null;
+
+  return {
+    name: fileName,
+    duration_ms: durationMs,
+    format: ext || "unknown",
+    bitrate: bitrate ?? estimatedBitrate,
+    sample_rate: sampleRate,
+    channels,
+    peak_db: Math.round(peakDb * 10) / 10,
+  };
 }
 
 function getMimeType(name: string): string {
@@ -186,13 +239,28 @@ export async function processFile(
     // ファイル書き込み
     await ff.writeFile(inputName, await fetchFile(options.input_file));
 
+    // 正規化の場合: ピーク音量を測定して adjust に変換
+    let effectiveOptions = options;
+    if (options.volume?.type === "normalize") {
+      const targetPeak = options.volume.target_lufs ?? -1;
+      const maxVolume = await detectPeakVolume(ff, inputName);
+      const adjustment = targetPeak - maxVolume;
+      effectiveOptions = {
+        ...options,
+        volume: { type: "adjust", db: Math.round(adjustment * 10) / 10 },
+      };
+    }
+
     // ffmpeg 実行
-    const args = buildFFmpegArgs(options);
+    const args = buildFFmpegArgs(effectiveOptions);
     await ff.exec(args);
 
     // 結果読み込み
     const data = await ff.readFile(outputName);
     const blob = new Blob([data], { type: getMimeType(outputName) });
+
+    // 出力ファイルのプローブ（クリーンアップ前）
+    const outputInfo = await probeAudioInfo(ff, outputName, blob.size);
 
     ff.off("progress", progressHandler);
 
@@ -212,6 +280,7 @@ export async function processFile(
       blob,
       success: true,
       error: null,
+      outputInfo,
     };
   } catch (e) {
     onProgress?.({
@@ -234,6 +303,7 @@ export async function processFile(
       blob: null,
       success: false,
       error: e instanceof Error ? e.message : String(e),
+      outputInfo: null,
     };
   }
 }

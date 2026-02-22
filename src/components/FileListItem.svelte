@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { FileEntry } from "$lib/types";
-  import { formatDuration, formatBitrate, formatSampleRate } from "$lib/utils";
+  import { formatDuration, formatBitrate, formatSampleRate, formatPeakDb } from "$lib/utils";
   import { playPreview, stopPreview } from "$lib/commands";
 
   interface Props {
@@ -35,7 +35,7 @@
   <div class="file-info">
     <span class="file-name">{entry.file.name}</span>
     <span class="file-meta">
-      {formatDuration(entry.file.duration_ms)} | {formatBitrate(entry.file.bitrate)} | {formatSampleRate(entry.file.sample_rate)} | {entry.file.format}
+      {formatDuration(entry.file.duration_ms, 2)} | {formatBitrate(entry.file.bitrate)} | {formatSampleRate(entry.file.sample_rate)} | Peak: {formatPeakDb(entry.file.peak_db)}
     </span>
   </div>
 

@@ -1,8 +1,11 @@
-export function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
+export function formatDuration(ms: number, decimals: number = 0): string {
+  const totalSeconds = ms / 1000;
   const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  const seconds = totalSeconds - minutes * 60;
+  if (decimals > 0) {
+    return `${minutes}:${seconds.toFixed(decimals).padStart(decimals + 3, "0")}`;
+  }
+  return `${minutes}:${Math.floor(seconds).toString().padStart(2, "0")}`;
 }
 
 export function formatSampleRate(sampleRate: string | null): string {
@@ -17,6 +20,11 @@ export function formatSampleRate(sampleRate: string | null): string {
 export function formatBitrate(bitrate: string | null): string {
   if (!bitrate) return "-";
   return bitrate;
+}
+
+export function formatPeakDb(peakDb: number | null): string {
+  if (peakDb === null || !isFinite(peakDb)) return "-∞ dB";
+  return `${peakDb > 0 ? "+" : ""}${peakDb.toFixed(1)} dB`;
 }
 
 export function getFileExtension(path: string): string {
