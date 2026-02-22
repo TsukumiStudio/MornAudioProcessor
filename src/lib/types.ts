@@ -11,6 +11,7 @@ export interface AudioFileInfo {
   channels: number | null;
   peak_db: number | null;
   rms_db: number | null;
+  lufs: number | null;
 }
 
 export type AudioFormat = "mp3" | "wav" | "ogg";
@@ -18,6 +19,7 @@ export type AudioFormat = "mp3" | "wav" | "ogg";
 export type VolumeOption =
   | { type: "normalize_peak"; target_db?: number }
   | { type: "normalize_rms"; target_db?: number }
+  | { type: "normalize_lufs"; target_lufs?: number }
   | { type: "adjust"; db: number };
 
 export interface TrimOption {

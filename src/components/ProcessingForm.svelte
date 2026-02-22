@@ -1,7 +1,6 @@
 <script lang="ts">
   import FormatSettings from "./FormatSettings.svelte";
   import VolumeSettings from "./VolumeSettings.svelte";
-  import TrimSettings from "./TrimSettings.svelte";
   import BitrateSettings from "./BitrateSettings.svelte";
   import SampleRateSettings from "./SampleRateSettings.svelte";
   import SilenceRemoveSettings from "./SilenceRemoveSettings.svelte";
@@ -91,7 +90,6 @@
       <BitrateSettings />
       <SampleRateSettings />
       <VolumeSettings />
-      <TrimSettings />
       <SilenceRemoveSettings />
     </div>
     <div class="actions">

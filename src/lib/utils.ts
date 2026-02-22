@@ -27,6 +27,11 @@ export function formatPeakDb(peakDb: number | null): string {
   return `${peakDb > 0 ? "+" : ""}${peakDb.toFixed(1)} dB`;
 }
 
+export function formatLufs(lufs: number | null): string {
+  if (lufs === null || !isFinite(lufs)) return "---";
+  return `${lufs.toFixed(1)} LUFS`;
+}
+
 export function getFileExtension(path: string): string {
   const lastDot = path.lastIndexOf(".");
   return lastDot >= 0 ? path.substring(lastDot + 1).toLowerCase() : "";
