@@ -24,19 +24,6 @@ export function getFileExtension(path: string): string {
   return lastDot >= 0 ? path.substring(lastDot + 1).toLowerCase() : "";
 }
 
-export function getFileName(path: string): string {
-  const sep = path.includes("\\") ? "\\" : "/";
-  const parts = path.split(sep);
-  return parts[parts.length - 1] || path;
-}
-
-export function getDirectory(path: string): string {
-  const sep = path.includes("\\") ? "\\" : "/";
-  const parts = path.split(sep);
-  parts.pop();
-  return parts.join(sep);
-}
-
 export function replaceExtension(path: string, newExt: string): string {
   const lastDot = path.lastIndexOf(".");
   if (lastDot >= 0) {

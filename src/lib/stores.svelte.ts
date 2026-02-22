@@ -94,18 +94,6 @@ export function getAppState() {
     set isDragging(v) {
       isDragging = v;
     },
-    get totalFiles() {
-      return files.length;
-    },
-    get completedFiles() {
-      return files.filter((f) => f.status === "completed").length;
-    },
-    get overallProgress() {
-      return files.length > 0
-        ? files.reduce((sum, f) => sum + f.progress, 0) / files.length
-        : 0;
-    },
-
     addFile(entry: FileEntry) {
       files = [...files, entry];
     },
