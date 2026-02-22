@@ -4,7 +4,6 @@
   import { base } from "$app/paths";
   import { getAppState } from "$lib/stores.svelte";
   import type { FileEntry } from "$lib/types";
-  import FfmpegStatus from "../components/FfmpegStatus.svelte";
   import FileDropZone from "../components/FileDropZone.svelte";
   import FileList from "../components/FileList.svelte";
   import ProcessingForm from "../components/ProcessingForm.svelte";
@@ -77,9 +76,6 @@
       <h1>MornAudioProcessor</h1>
       <span class="version">v{__APP_VERSION__}</span>
     </div>
-    {#if !appState.ffmpegInfo}
-      <FfmpegStatus info={appState.ffmpegInfo} error={appState.ffmpegError} />
-    {/if}
   </header>
 
   {#if appState.ffmpegInfo}
