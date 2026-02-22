@@ -1,6 +1,6 @@
 {
   "name": "morn-audio-processor",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Audio batch processor using ffmpeg",
   "type": "module",
   "scripts": {

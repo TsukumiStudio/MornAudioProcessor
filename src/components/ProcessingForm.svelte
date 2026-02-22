@@ -86,11 +86,15 @@
   <section class="processing-form">
     <h2>処理設定</h2>
     <div class="settings-grid">
-      <FormatSettings />
-      <BitrateSettings />
-      <SampleRateSettings />
-      <VolumeSettings />
-      <SilenceRemoveSettings />
+      <div class="settings-col">
+        <FormatSettings />
+        <SampleRateSettings />
+        <SilenceRemoveSettings />
+      </div>
+      <div class="settings-col">
+        <BitrateSettings />
+        <VolumeSettings />
+      </div>
     </div>
     <div class="actions">
       <button
@@ -133,8 +137,13 @@
     color: #d4d4d8;
   }
   .settings-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    gap: 16px;
+  }
+  .settings-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
     gap: 16px;
   }
   .actions {
