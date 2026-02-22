@@ -6,7 +6,7 @@
   import SampleRateSettings from "./SampleRateSettings.svelte";
   import SilenceRemoveSettings from "./SilenceRemoveSettings.svelte";
   import { getAppState } from "$lib/stores.svelte";
-  import { processFile, downloadBlob } from "$lib/commands";
+  import { processFile, downloadBlob, resetFFmpeg } from "$lib/commands";
   import type { ProcessingOptions, AudioFormat } from "$lib/types";
   import { getFileExtension, replaceExtension } from "$lib/utils";
 
@@ -26,6 +26,9 @@
     if (state.files.length === 0) return;
     state.isProcessing = true;
     state.processingDone = false;
+
+    // メモリ蓄積防止のため ffmpeg を再初期化
+    await resetFFmpeg();
 
     state.files = state.files.map((f) => ({
       ...f,

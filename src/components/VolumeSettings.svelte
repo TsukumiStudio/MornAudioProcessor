@@ -3,17 +3,20 @@
 
   const appState = getAppState();
 
-  let mode = $state<"none" | "normalize" | "adjust">("none");
-  let targetLufs = $state(-1);
+  let mode = $state<"none" | "peak" | "rms" | "adjust">("none");
+  let targetPeakDb = $state(-1);
+  let targetRmsDb = $state(-20);
   let adjustDb = $state(0);
 
   function updateVolume() {
-    if (mode === "none") {
-      appState.volume = null;
-    } else if (mode === "normalize") {
-      appState.volume = { type: "normalize", target_lufs: targetLufs };
-    } else {
+    if (mode === "peak") {
+      appState.volume = { type: "normalize_peak", target_db: targetPeakDb };
+    } else if (mode === "rms") {
+      appState.volume = { type: "normalize_rms", target_db: targetRmsDb };
+    } else if (mode === "adjust") {
       appState.volume = { type: "adjust", db: adjustDb };
+    } else {
+      appState.volume = null;
     }
   }
 
@@ -39,11 +42,21 @@
       <input
         type="radio"
         name="volume"
-        value="normalize"
+        value="peak"
         bind:group={mode}
         disabled={appState.isProcessing}
       />
-      正規化
+      Peak正規化
+    </label>
+    <label class="radio-label">
+      <input
+        type="radio"
+        name="volume"
+        value="rms"
+        bind:group={mode}
+        disabled={appState.isProcessing}
+      />
+      RMS正規化
     </label>
     <label class="radio-label">
       <input
@@ -57,14 +70,27 @@
     </label>
   </div>
 
-  {#if mode === "normalize"}
+  {#if mode === "peak"}
     <div class="sub-setting">
-      <label for="lufs-input">ピーク (dB)</label>
+      <label for="peak-input">目標ピーク値 (dB)</label>
       <input
-        id="lufs-input"
+        id="peak-input"
         type="number"
-        bind:value={targetLufs}
+        bind:value={targetPeakDb}
         min="-30"
+        max="0"
+        step="1"
+        disabled={appState.isProcessing}
+      />
+    </div>
+  {:else if mode === "rms"}
+    <div class="sub-setting">
+      <label for="rms-input">目標RMS (dB)</label>
+      <input
+        id="rms-input"
+        type="number"
+        bind:value={targetRmsDb}
+        min="-40"
         max="0"
         step="1"
         disabled={appState.isProcessing}
