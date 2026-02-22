@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { FileEntry } from "$lib/types";
   import { downloadBlob, playPreview, stopPreview } from "$lib/commands";
+  import { formatDuration, formatBitrate, formatSampleRate, formatPeakDb } from "$lib/utils";
 
   interface Props {
     entry: FileEntry;
@@ -50,6 +51,10 @@
         </div>
         <span class="progress-text">{Math.round(entry.progress)}%</span>
       </div>
+    {:else if entry.status === "completed" && entry.outputInfo}
+      <span class="file-meta">
+        {formatDuration(entry.outputInfo.duration_ms, 2)} | {formatBitrate(entry.outputInfo.bitrate)} | {formatSampleRate(entry.outputInfo.sample_rate)} | Peak: {formatPeakDb(entry.outputInfo.peak_db)}
+      </span>
     {/if}
   </div>
 
@@ -93,6 +98,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .file-meta {
+    font-size: 0.75rem;
+    color: #737373;
   }
   .progress-row {
     display: flex;

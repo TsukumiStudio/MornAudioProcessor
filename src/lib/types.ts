@@ -9,6 +9,7 @@ export interface AudioFileInfo {
   bitrate: string | null;
   sample_rate: string | null;
   channels: number | null;
+  peak_db: number | null;
 }
 
 export type AudioFormat = "mp3" | "wav" | "ogg";
@@ -51,6 +52,7 @@ export interface ProcessingResult {
   blob: Blob | null;
   success: boolean;
   error: string | null;
+  outputInfo: AudioFileInfo | null;
 }
 
 export interface FileEntry {
@@ -62,4 +64,5 @@ export interface FileEntry {
   error?: string;
   resultBlob?: Blob;
   outputName?: string;
+  outputInfo?: AudioFileInfo;
 }

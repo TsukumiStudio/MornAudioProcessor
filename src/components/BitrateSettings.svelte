@@ -10,7 +10,7 @@
 </script>
 
 <div class="setting-group">
-  <label for="bitrate-select">ビットレート</label>
+  <label for="bitrate-select">ビットレート（mp3/ogg のみ・実値と差異あり）</label>
   <select
     id="bitrate-select"
     value={state.bitrate}
