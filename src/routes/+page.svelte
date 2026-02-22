@@ -75,8 +75,11 @@
     <div class="header-title">
       <img src="{base}/icon.png" alt="MornAudioProcessor" class="header-icon" />
       <h1>MornAudioProcessor</h1>
+      <span class="version">v{__APP_VERSION__}</span>
     </div>
-    <FfmpegStatus info={appState.ffmpegInfo} error={appState.ffmpegError} />
+    {#if !appState.ffmpegInfo}
+      <FfmpegStatus info={appState.ffmpegInfo} error={appState.ffmpegError} />
+    {/if}
   </header>
 
   {#if appState.ffmpegInfo}
@@ -139,6 +142,13 @@
     width: 36px;
     height: 36px;
     border-radius: 8px;
+  }
+
+  .version {
+    font-size: 0.7rem;
+    color: #737373;
+    align-self: flex-end;
+    margin-bottom: 2px;
   }
 
   h1 {
