@@ -15,7 +15,7 @@
     id="bitrate-select"
     value={state.bitrate}
     onchange={handleChange}
-    disabled={state.isProcessing}
+    disabled={state.isProcessing || state.outputFormat === "wav"}
   >
     <option value="">変更しない</option>
     <option value="64k">64 kbps</option>
