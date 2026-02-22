@@ -94,16 +94,25 @@ function buildFFmpegArgs(options: ProcessingOptions): string[] {
     const parts: string[] = [];
     if (sr.remove_start) {
       parts.push(
-        `start_periods=1:start_silence=0:start_threshold=${sr.threshold_db}dB`,
+        `start_periods=1:start_silence=0:start_threshold=${sr.threshold_start_db}dB`,
       );
     }
     if (sr.remove_end) {
       parts.push(
-        `stop_periods=-1:stop_silence=0:stop_threshold=${sr.threshold_db}dB`,
+        `stop_periods=-1:stop_silence=0:stop_threshold=${sr.threshold_end_db}dB`,
       );
     }
     if (parts.length > 0) {
       filters.push(`silenceremove=${parts.join(":")}`);
+    }
+  }
+
+  if (options.noise_reduce) {
+    const nr = options.noise_reduce;
+    if (nr.type === "afftdn") {
+      filters.push(`afftdn=nr=${nr.nr}:nf=${nr.nf}`);
+    } else if (nr.type === "anlmdn") {
+      filters.push(`anlmdn=s=${nr.strength}`);
     }
   }
 
