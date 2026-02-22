@@ -1,16 +1,28 @@
 <script lang="ts">
   import type { FileEntry } from "$lib/types";
-  import { downloadBlob } from "$lib/commands";
+  import { downloadBlob, playPreview, stopPreview } from "$lib/commands";
 
   interface Props {
     entry: FileEntry;
   }
 
   let { entry }: Props = $props();
+  let playing = $state(false);
 
   function handleDownload() {
     if (entry.resultBlob && entry.outputName) {
       downloadBlob(entry.resultBlob, entry.outputName);
+    }
+  }
+
+  function togglePlay() {
+    if (playing) {
+      stopPreview();
+    } else if (entry.resultBlob) {
+      playPreview(entry.resultBlob, () => {
+        playing = false;
+      });
+      playing = true;
     }
   }
 </script>
@@ -20,6 +32,15 @@
   class:completed={entry.status === "completed"}
   class:error={entry.status === "error"}
 >
+  {#if entry.status === "completed"}
+    <button
+      class="play-btn"
+      onclick={togglePlay}
+      title={playing ? "停止" : "再生"}
+    >
+      {#if playing}&#9632;{:else}&#9654;{/if}
+    </button>
+  {/if}
   <div class="output-info">
     <span class="output-name">{entry.outputName ?? entry.file.name}</span>
     {#if entry.status === "processing"}
@@ -112,6 +133,22 @@
     background: #ef444422;
     color: #ef4444;
     cursor: help;
+  }
+  .play-btn {
+    background: none;
+    border: 1px solid #3f3f36;
+    color: #a3a825;
+    font-size: 0.7rem;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    box-shadow: none;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .play-btn:hover {
+    background: #a3a82522;
+    border-color: #a3a825;
   }
   .download-btn {
     background: none;
