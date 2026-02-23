@@ -22,6 +22,17 @@ export function formatBitrate(bitrate: string | null): string {
   return bitrate;
 }
 
+export function formatBitrateOrBitDepth(
+  format: string,
+  bitrate: string | null,
+  bitDepth: string | null,
+): string {
+  if (format === "wav" || format === "flac") {
+    return bitDepth ?? "-";
+  }
+  return formatBitrate(bitrate);
+}
+
 export function formatPeakDb(peakDb: number | null): string {
   if (peakDb === null || !isFinite(peakDb)) return "-∞ dB";
   return `${peakDb > 0 ? "+" : ""}${peakDb.toFixed(1)} dB`;

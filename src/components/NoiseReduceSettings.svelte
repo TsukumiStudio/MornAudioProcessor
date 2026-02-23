@@ -21,6 +21,18 @@
   $effect(() => {
     updateNoiseReduce();
   });
+
+  let lastResetCounter = appState.settingsResetCounter;
+  $effect(() => {
+    const current = appState.settingsResetCounter;
+    if (current !== lastResetCounter) {
+      lastResetCounter = current;
+      mode = "none";
+      afftdnNr = 12;
+      afftdnNf = -40;
+      anlmdnStrength = 0.01;
+    }
+  });
 </script>
 
 <div class="setting-group">

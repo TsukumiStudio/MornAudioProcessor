@@ -26,6 +26,19 @@
   $effect(() => {
     updateVolume();
   });
+
+  let lastResetCounter = appState.settingsResetCounter;
+  $effect(() => {
+    const current = appState.settingsResetCounter;
+    if (current !== lastResetCounter) {
+      lastResetCounter = current;
+      mode = "none";
+      targetPeakDb = -1;
+      targetRmsDb = -20;
+      targetLufs = -14;
+      adjustDb = 0;
+    }
+  });
 </script>
 
 <div class="setting-group">

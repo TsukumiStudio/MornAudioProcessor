@@ -6,8 +6,8 @@
   let enabled = $state(false);
   let removeStart = $state(true);
   let removeEnd = $state(true);
-  let thresholdStartDb = $state(-50);
-  let thresholdEndDb = $state(-50);
+  let thresholdStartDb = $state(-40);
+  let thresholdEndDb = $state(-40);
 
   function updateSilenceRemove() {
     if (!enabled) {
@@ -24,6 +24,19 @@
 
   $effect(() => {
     updateSilenceRemove();
+  });
+
+  let lastResetCounter = appState.settingsResetCounter;
+  $effect(() => {
+    const current = appState.settingsResetCounter;
+    if (current !== lastResetCounter) {
+      lastResetCounter = current;
+      enabled = false;
+      removeStart = true;
+      removeEnd = true;
+      thresholdStartDb = -40;
+      thresholdEndDb = -40;
+    }
   });
 </script>
 

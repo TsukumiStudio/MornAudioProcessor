@@ -1,17 +1,28 @@
 <script lang="ts">
-  import type { FileEntry } from "$lib/types";
+  import type { OutputFileEntry, CompareSelection } from "$lib/types";
   import { downloadBlob, playPreview, stopPreview } from "$lib/commands";
-  import { formatDuration, formatBitrate, formatSampleRate, formatPeakDb, formatLufs } from "$lib/utils";
+  import { formatDuration, formatBitrateOrBitDepth, formatSampleRate, formatPeakDb, formatLufs } from "$lib/utils";
+  import { getAppState } from "$lib/stores.svelte";
 
   interface Props {
-    entry: FileEntry;
+    entry: OutputFileEntry;
   }
 
   let { entry }: Props = $props();
   let playing = $state(false);
 
+  const appState = getAppState();
+
+  let selection: CompareSelection = $derived({ type: "output" as const, id: entry.id });
+  let isA = $derived(
+    appState.compareA?.type === "output" && appState.compareA.id === entry.id
+  );
+  let isB = $derived(
+    appState.compareB?.type === "output" && appState.compareB.id === entry.id
+  );
+
   function handleDownload() {
-    if (entry.resultBlob && entry.outputName) {
+    if (entry.resultBlob) {
       downloadBlob(entry.resultBlob, entry.outputName);
     }
   }
@@ -34,26 +45,29 @@
   class:error={entry.status === "error"}
 >
   {#if entry.status === "completed"}
-    <button
-      class="play-btn"
-      onclick={togglePlay}
-      title={playing ? "停止" : "再生"}
-    >
-      {#if playing}&#9632;{:else}&#9654;{/if}
-    </button>
+    <div class="controls-col">
+      <button
+        class="play-btn"
+        onclick={togglePlay}
+        title={playing ? "停止" : "再生"}
+      >
+        {#if playing}&#9632;{:else}&#9654;{/if}
+      </button>
+      <div class="ab-row">
+        <button class="ab-btn" class:active={isA}
+          onclick={() => appState.toggleCompareA(selection)}
+          title="A に設定">A</button>
+        <button class="ab-btn" class:active={isB}
+          onclick={() => appState.toggleCompareB(selection)}
+          title="B に設定">B</button>
+      </div>
+    </div>
   {/if}
   <div class="output-info">
-    <span class="output-name">{entry.outputName ?? entry.file.name}</span>
-    {#if entry.status === "processing"}
-      <div class="progress-row">
-        <div class="progress-bar">
-          <div class="progress-fill" style="width: {entry.progress}%"></div>
-        </div>
-        <span class="progress-text">{Math.round(entry.progress)}%</span>
-      </div>
-    {:else if entry.status === "completed" && entry.outputInfo}
+    <span class="output-name">{entry.outputName}</span>
+    {#if entry.status === "completed" && entry.outputInfo}
       <span class="file-meta">
-        {formatDuration(entry.outputInfo.duration_ms, 2)} | {formatBitrate(entry.outputInfo.bitrate)} | {formatSampleRate(entry.outputInfo.sample_rate)} | Peak: <span class:clipping={entry.outputInfo.peak_db !== null && entry.outputInfo.peak_db >= 0}>{formatPeakDb(entry.outputInfo.peak_db)}</span> | RMS: {formatPeakDb(entry.outputInfo.rms_db)} | {formatLufs(entry.outputInfo.lufs)}
+        {formatDuration(entry.outputInfo.duration_ms, 2)} | {formatBitrateOrBitDepth(entry.outputInfo.format, entry.outputInfo.bitrate, entry.outputInfo.bit_depth)} | {formatSampleRate(entry.outputInfo.sample_rate)} | Peak: <span class:clipping={entry.outputInfo.peak_db !== null && entry.outputInfo.peak_db >= 0}>{formatPeakDb(entry.outputInfo.peak_db)}</span> | RMS: {formatPeakDb(entry.outputInfo.rms_db)} | {formatLufs(entry.outputInfo.lufs)}
       </span>
     {/if}
   </div>
@@ -147,17 +161,53 @@
     color: #ef4444;
     cursor: help;
   }
+  .controls-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .ab-row {
+    display: flex;
+    gap: 2px;
+  }
+  .ab-btn {
+    background: none;
+    border: 1px solid #3f3f36;
+    color: #737373;
+    font-size: 0.65rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 4px 5px;
+    border-radius: 4px;
+    box-shadow: none;
+    line-height: 1;
+    flex-shrink: 0;
+    min-width: 22px;
+    text-align: center;
+  }
+  .ab-btn:hover {
+    background: #3f3f36;
+    color: #e4e4e7;
+  }
+  .ab-btn.active {
+    background: #a3a825;
+    border-color: #a3a825;
+    color: #111110;
+  }
   .play-btn {
     background: none;
     border: 1px solid #3f3f36;
     color: #a3a825;
     font-size: 0.7rem;
     cursor: pointer;
-    padding: 4px 6px;
+    padding: 4px 10px;
     border-radius: 4px;
     box-shadow: none;
     line-height: 1;
     flex-shrink: 0;
+    width: 100%;
   }
   .play-btn:hover {
     background: #a3a82522;

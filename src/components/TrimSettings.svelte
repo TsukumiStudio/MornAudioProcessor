@@ -21,6 +21,17 @@
   $effect(() => {
     updateTrim();
   });
+
+  let lastResetCounter = appState.settingsResetCounter;
+  $effect(() => {
+    const current = appState.settingsResetCounter;
+    if (current !== lastResetCounter) {
+      lastResetCounter = current;
+      enabled = false;
+      start = "";
+      end = "";
+    }
+  });
 </script>
 
 <div class="setting-group">

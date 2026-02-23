@@ -5,9 +5,26 @@
 
   const appState = getAppState();
 
-  const SUPPORTED_EXTENSIONS = [".mp3", ".wav", ".ogg"];
+  const SUPPORTED_EXTENSIONS = [".mp3", ".wav", ".ogg", ".flac"];
 
   let fileInput: HTMLInputElement;
+
+  function makePlaceholderInfo(name: string): import("$lib/types").AudioFileInfo {
+    return {
+      name,
+      duration_ms: 0,
+      format: "",
+      bitrate: null,
+      sample_rate: null,
+      channels: null,
+      bit_depth: null,
+      peak_db: null,
+      rms_db: null,
+      lufs: null,
+      metadata: {},
+      albumArtUrl: null,
+    };
+  }
 
   async function addFilesFromInput(fileList: FileList | File[]) {
     const filesArray = Array.from(fileList);
@@ -16,20 +33,28 @@
         .substring(file.name.lastIndexOf("."))
         .toLowerCase();
       if (!SUPPORTED_EXTENSIONS.includes(ext)) continue;
-      if (appState.files.some((f) => f.file.name === file.name)) continue;
+
+      const existing = appState.files.find((f) => f.file.name === file.name);
+      const entryId = existing?.id ?? crypto.randomUUID();
+
+      if (existing) {
+        appState.updateFile(entryId, { status: "loading", progress: 0 });
+      } else {
+        appState.addFile({
+          id: entryId,
+          file: makePlaceholderInfo(file.name),
+          sourceFile: file,
+          status: "loading",
+          progress: 0,
+        });
+      }
 
       try {
         const info = await getAudioInfo(file);
-        const entry: FileEntry = {
-          id: crypto.randomUUID(),
-          file: info,
-          sourceFile: file,
-          status: "pending",
-          progress: 0,
-        };
-        appState.addFile(entry);
+        appState.updateFile(entryId, { file: info, sourceFile: file, status: "pending", progress: 0 });
       } catch (e) {
         console.error(`ファイル情報取得失敗: ${file.name}`, e);
+        appState.updateFile(entryId, { status: "error", error: String(e) });
       }
     }
   }
@@ -51,7 +76,7 @@
   bind:this={fileInput}
   type="file"
   multiple
-  accept=".mp3,.wav,.ogg"
+  accept=".mp3,.wav,.ogg,.flac"
   onchange={handleFileInput}
   style="display: none;"
 />
@@ -87,7 +112,7 @@
     {:else}
       <p class="main-text">ドラッグ&ドロップ または クリックしてファイルを選択</p>
     {/if}
-    <p class="sub-text">対応形式: MP3, WAV, OGG</p>
+    <p class="sub-text">対応形式: MP3, WAV, OGG, FLAC</p>
   </div>
 </div>
 
