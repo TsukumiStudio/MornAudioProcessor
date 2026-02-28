@@ -205,6 +205,17 @@
     </a>
   </header>
 
+  <div class="privacy-notice">
+    <p>
+      すべての音声処理はお使いのブラウザ上で完結します。ファイルがサーバーにアップロード・保存されることはありません。
+      ソースコードは
+      <a href="https://github.com/TsukumiStudio/MornAudioProcessor" target="_blank" rel="noopener noreferrer">
+        GitHub
+      </a>
+      で完全に公開されています。
+    </p>
+  </div>
+
   {#if appState.ffmpegInfo}
     <div class="content">
       <WaveformComparison />
@@ -325,6 +336,26 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+
+  .privacy-notice {
+    background: #1c1c17;
+    border: 1px solid #28281f;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 0.8rem;
+    color: #a3a3a3;
+    line-height: 1.5;
+  }
+  .privacy-notice p {
+    margin: 0;
+  }
+  .privacy-notice a {
+    color: #c5c94b;
+    text-decoration: none;
+  }
+  .privacy-notice a:hover {
+    text-decoration: underline;
   }
 
   .content {
