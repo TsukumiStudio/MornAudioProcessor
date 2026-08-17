@@ -51,6 +51,19 @@ let compareB = $state<CompareSelection | null>(null);
 let isProcessing = $state(false);
 let isDragging = $state(false);
 let settingsResetCounter = $state(0);
+// 「高度な機能」トグル。OFF のときは詳細フィルタを処理に適用しない
+// （UI から確認できない設定が効き続けるのを防ぐ）
+let showAdvanced = $state(false);
+
+/**
+ * ファイルエントリが持つアルバムアートの objectURL を解放する。
+ * blob URL はページ生存中 Blob をピン留めするため、破棄・差し替え時に必ず呼ぶ。
+ * nextUrl に同じ URL が引き継がれる場合は解放しない。
+ */
+function revokeAlbumArt(entry: FileEntry, nextUrl?: string | null) {
+  const url = entry.file?.albumArtUrl;
+  if (url && url !== nextUrl) URL.revokeObjectURL(url);
+}
 
 export function getAppState() {
   return {
@@ -251,6 +264,12 @@ export function getAppState() {
     get settingsResetCounter() {
       return settingsResetCounter;
     },
+    get showAdvanced() {
+      return showAdvanced;
+    },
+    set showAdvanced(v) {
+      showAdvanced = v;
+    },
     resetSettings() {
       outputFormat = "same";
       volume = null;
@@ -278,15 +297,31 @@ export function getAppState() {
     addFile(entry: FileEntry) {
       files = [...files, entry];
     },
-    updateFile(id: string, updates: Partial<FileEntry>) {
-      files = files.map((f) => (f.id === id ? { ...f, ...updates } : f));
+    /** 対象エントリが存在して更新できた場合に true を返す */
+    updateFile(id: string, updates: Partial<FileEntry>): boolean {
+      const entry = files.find((f) => f.id === id);
+      if (!entry) return false;
+      // ファイル情報を差し替える場合、旧アルバムアートの objectURL を解放する
+      if (updates.file && updates.file !== entry.file) {
+        revokeAlbumArt(entry, updates.file.albumArtUrl);
+      }
+      // 配列を作り直すと each 全体の差分計算が走るため、その場更新にする
+      Object.assign(entry, updates);
+      return true;
+    },
+    /** 指定エントリの現在の状態（存在しなければ null） */
+    getFileStatus(id: string): FileEntry["status"] | null {
+      return files.find((f) => f.id === id)?.status ?? null;
     },
     removeFile(id: string) {
+      const entry = files.find((f) => f.id === id);
+      if (entry) revokeAlbumArt(entry);
       files = files.filter((f) => f.id !== id);
       if (compareA?.type === "input" && compareA.id === id) compareA = null;
       if (compareB?.type === "input" && compareB.id === id) compareB = null;
     },
     clearInputFiles() {
+      for (const entry of files) revokeAlbumArt(entry);
       files = [];
       if (compareA?.type === "input") compareA = null;
       if (compareB?.type === "input") compareB = null;
@@ -301,9 +336,11 @@ export function getAppState() {
       progress: number,
       status: FileEntry["status"],
     ) {
-      files = files.map((f) =>
-        f.file.name === fileName ? { ...f, progress, status } : f,
-      );
+      // 進捗は高頻度に更新されるため、配列を作り直さずその場更新にする
+      const entry = files.find((f) => f.file.name === fileName);
+      if (!entry) return;
+      entry.progress = progress;
+      entry.status = status;
     },
     addOutputResult(
       outputName: string,

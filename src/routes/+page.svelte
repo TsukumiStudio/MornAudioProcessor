@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { initFFmpeg, getAudioInfo } from "$lib/commands";
+  import { initFFmpeg } from "$lib/commands";
   import { base } from "$app/paths";
   import { getAppState } from "$lib/stores.svelte";
-  import type { FileEntry, AudioFileInfo } from "$lib/types";
-  import { processFile, downloadBlob, resetFFmpeg } from "$lib/commands";
+  import { ingestFiles } from "$lib/file-intake";
+  import { processFiles, resetFFmpeg, type ProcessingJob } from "$lib/commands";
   import type { ProcessingOptions, AudioFormat, MetadataSettings } from "$lib/types";
   import { getFileExtension, replaceExtension } from "$lib/utils";
   import WaveformComparison from "../components/WaveformComparison.svelte";
@@ -13,8 +13,8 @@
   import ProcessingForm from "../components/ProcessingForm.svelte";
 
   const appState = getAppState();
-  const SUPPORTED_EXTENSIONS = [".mp3", ".wav", ".ogg", ".flac"];
   let loadingMessage = $state("ffmpeg.wasm を読み込み中...");
+  let processingError = $state<string | null>(null);
 
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
@@ -31,46 +31,13 @@
     }
   }
 
-  function makePlaceholderInfo(name: string): AudioFileInfo {
-    return {
-      name, duration_ms: 0, format: "", bitrate: null, sample_rate: null,
-      channels: null, bit_depth: null, peak_db: null, rms_db: null, lufs: null,
-      metadata: {}, albumArtUrl: null,
-    };
-  }
-
-  async function handleDrop(e: DragEvent) {
+  function handleDrop(e: DragEvent) {
     e.preventDefault();
     appState.isDragging = false;
-    if (e.dataTransfer?.files && appState.ffmpegInfo) {
-      for (const file of Array.from(e.dataTransfer.files)) {
-        const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-        if (!SUPPORTED_EXTENSIONS.includes(ext)) continue;
-
-        const existing = appState.files.find((f) => f.file.name === file.name);
-        const entryId = existing?.id ?? crypto.randomUUID();
-
-        if (existing) {
-          appState.updateFile(entryId, { status: "loading", progress: 0 });
-        } else {
-          appState.addFile({
-            id: entryId,
-            file: makePlaceholderInfo(file.name),
-            sourceFile: file,
-            status: "loading",
-            progress: 0,
-          });
-        }
-
-        try {
-          const info = await getAudioInfo(file);
-          appState.updateFile(entryId, { file: info, sourceFile: file, status: "pending", progress: 0 });
-        } catch (e) {
-          console.error(`ファイル情報取得失敗: ${file.name}`, e);
-          appState.updateFile(entryId, { status: "error", error: String(e) });
-        }
-      }
-    }
+    // エラー画面ではリストが非表示なので、受け付けると見えないエントリが積まれる
+    if (appState.ffmpegError) return;
+    // コア読み込み中でも受け付ける（解析は ingestFiles 側で完了を待つ）
+    if (e.dataTransfer?.files) ingestFiles(e.dataTransfer.files);
   }
 
   function buildOutputName(inputName: string): string {
@@ -112,17 +79,47 @@
     appState.resetSettings();
   }
 
-  async function startProcessing() {
-    if (appState.files.length === 0) return;
-    appState.isProcessing = true;
+  // 解析が終わっていないファイルがあると input_sample_rate が未確定で、
+  // LUFS 正規化のサンプルレート復元などが効かないため処理を待たせる
+  let isAnalyzing = $derived(appState.files.some((f) => f.status === "loading"));
+  let canStart = $derived(
+    appState.files.length > 0 &&
+      !appState.isProcessing &&
+      !isAnalyzing &&
+      appState.ffmpegInfo !== null,
+  );
 
+  async function startProcessing() {
+    if (!canStart) return;
+    processingError = null;
+    appState.isProcessing = true;
+    try {
+      await runProcessing();
+    } catch (e) {
+      // コア再ロード失敗などループ外の例外を握り潰さない
+      console.error("処理に失敗しました", e);
+      processingError = String(e);
+    } finally {
+      // 例外が出てもボタンが永久に無効化されないようにする
+      appState.isProcessing = false;
+    }
+  }
+
+  async function runProcessing() {
     await resetFFmpeg();
 
-    appState.files = appState.files.map((f) => ({
-      ...f,
-      status: "pending" as const,
-      progress: 0,
-    }));
+    for (const entry of appState.files) {
+      entry.status = "pending";
+      entry.progress = 0;
+    }
+
+    // 「高度な機能」が OFF のときは詳細タブの設定を一切適用しない。
+    // UI 上どこからも確認できない設定が効き続けるのを防ぐため。
+    const advanced = appState.showAdvanced;
+
+    const jobs: ProcessingJob[] = [];
+    const outputNames: string[] = [];
+    const inputNames: string[] = [];
 
     for (const entry of appState.files) {
       const outputName = buildOutputName(entry.file.name);
@@ -139,40 +136,61 @@
         sample_rate: appState.sampleRate ?? undefined,
         silence_remove: appState.silenceRemove ?? undefined,
         noise_reduce: appState.noiseReduce ?? undefined,
-        frequency_filter: appState.frequencyFilter ?? undefined,
-        dynamics_filter: appState.dynamicsFilter ?? undefined,
-        effect_filter: appState.effectFilter ?? undefined,
-        channel_filter: appState.channelFilter ?? undefined,
         input_sample_rate: entry.file.sample_rate ? parseInt(entry.file.sample_rate, 10) : undefined,
-        frequency_filter_ext: appState.frequencyFilterExt ?? undefined,
-        dynamics_filter_ext: appState.dynamicsFilterExt ?? undefined,
-        effect_filter_ext: appState.effectFilterExt ?? undefined,
-        repair_filter: appState.repairFilter ?? undefined,
-        stereo_filter: appState.stereoFilter ?? undefined,
         bit_depth: appState.bitDepth || undefined,
         ogg_quality: appState.oggQuality,
-        metadata: resolveMetadataForFile(entry.id, appState.metadataSettings),
-        album_art: appState.albumArtMap[entry.id] ?? appState.albumArt ?? undefined,
+        // --- ここから下は詳細タブ（高度な機能）の設定 ---
+        frequency_filter: (advanced ? appState.frequencyFilter : null) ?? undefined,
+        dynamics_filter: (advanced ? appState.dynamicsFilter : null) ?? undefined,
+        effect_filter: (advanced ? appState.effectFilter : null) ?? undefined,
+        channel_filter: (advanced ? appState.channelFilter : null) ?? undefined,
+        frequency_filter_ext: (advanced ? appState.frequencyFilterExt : null) ?? undefined,
+        dynamics_filter_ext: (advanced ? appState.dynamicsFilterExt : null) ?? undefined,
+        effect_filter_ext: (advanced ? appState.effectFilterExt : null) ?? undefined,
+        repair_filter: (advanced ? appState.repairFilter : null) ?? undefined,
+        stereo_filter: (advanced ? appState.stereoFilter : null) ?? undefined,
+        metadata: advanced
+          ? resolveMetadataForFile(entry.id, appState.metadataSettings)
+          : undefined,
+        album_art: advanced
+          ? (appState.albumArtMap[entry.id] ?? appState.albumArt ?? undefined)
+          : undefined,
       };
 
-      const result = await processFile(options, (progress) => {
+      jobs.push({
+        options,
+        durationMs: entry.file.duration_ms || null,
+        sampleRate: entry.file.sample_rate
+          ? parseInt(entry.file.sample_rate, 10)
+          : null,
+        channels: entry.file.channels,
+      });
+      outputNames.push(outputName);
+      inputNames.push(entry.file.name);
+    }
+
+    await processFiles(
+      jobs,
+      (progress) => {
         appState.updateFileProgress(
           progress.file_name,
           progress.percentage,
           progress.status === "completed" ? "completed" : "processing",
         );
-      });
-
-      if (result.success && result.blob) {
-        appState.updateFileProgress(entry.file.name, 100, "completed");
-        appState.addOutputResult(outputName, result.blob, result.outputInfo ?? null);
-      } else if (result.error) {
-        appState.updateFileProgress(entry.file.name, 0, "error");
-        appState.addOutputError(outputName, result.error);
-      }
-    }
-
-    appState.isProcessing = false;
+      },
+      (result, index) => {
+        const outputName = outputNames[index];
+        const inputName = inputNames[index];
+        if (result.success && result.blob) {
+          appState.updateFileProgress(inputName, 100, "completed");
+          appState.addOutputResult(outputName, result.blob, result.outputInfo ?? null);
+        } else {
+          // error が空でも processing のまま固まらせない
+          appState.updateFileProgress(inputName, 0, "error");
+          appState.addOutputError(outputName, result.error || "不明なエラー");
+        }
+      },
+    );
   }
 
   onMount(async () => {
@@ -216,7 +234,23 @@
     </p>
   </div>
 
-  {#if appState.ffmpegInfo}
+  {#if appState.ffmpegError}
+    <div class="error-container">
+      <p>ffmpeg.wasm の読み込みに失敗しました。ページを再読み込みしてください。</p>
+    </div>
+  {:else}
+    <!-- コアの読み込み完了を待たずに UI を出す。読み込み中でもファイル投入と設定は可能 -->
+    {#if !appState.ffmpegInfo}
+      <div class="core-loading">
+        <span class="spinner"></span>
+        <p>{loadingMessage}（このまま設定やファイル追加ができます）</p>
+      </div>
+    {/if}
+    {#if processingError}
+      <div class="processing-error">
+        <p>処理を中断しました: {processingError}</p>
+      </div>
+    {/if}
     <div class="content">
       <WaveformComparison />
       <FileDropZone />
@@ -229,27 +263,19 @@
         >
           処理設定をリセット
         </button>
-        <button
-          class="start-btn"
-          onclick={startProcessing}
-          disabled={appState.files.length === 0 || appState.isProcessing}
-        >
+        <button class="start-btn" onclick={startProcessing} disabled={!canStart}>
           {#if appState.isProcessing}
             処理中...
+          {:else if !appState.ffmpegInfo}
+            コア読み込み中...
+          {:else if isAnalyzing}
+            解析中...
           {:else}
             処理開始
           {/if}
         </button>
       </div>
       <ProcessingForm />
-    </div>
-  {:else if appState.ffmpegError}
-    <div class="error-container">
-      <p>ffmpeg.wasm の読み込みに失敗しました。ページを再読み込みしてください。</p>
-    </div>
-  {:else}
-    <div class="loading">
-      <p>{loadingMessage}</p>
     </div>
   {/if}
 </main>
@@ -370,10 +396,45 @@
     color: #a3a3a3;
   }
 
-  .loading {
-    text-align: center;
-    padding: 40px;
-    color: #737373;
+  .processing-error {
+    background: #2a1c1c;
+    border: 1px solid #5a2b2b;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 0.8rem;
+    color: #f0a3a3;
+  }
+  .processing-error p {
+    margin: 0;
+  }
+
+  .core-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #1c1c17;
+    border: 1px solid #28281f;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 0.8rem;
+    color: #a3a3a3;
+  }
+  .core-loading p {
+    margin: 0;
+  }
+  .spinner {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    border: 2px solid #3f3f36;
+    border-top-color: #a3a825;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .action-bar {

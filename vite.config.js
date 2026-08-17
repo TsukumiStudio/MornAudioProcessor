@@ -4,27 +4,11 @@ import { readFileSync } from "fs";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
 
-/** @type {import('vite').Plugin} */
-const crossOriginIsolation = {
-  name: "cross-origin-isolation",
-  configureServer(server) {
-    server.middlewares.use((_req, res, next) => {
-      res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-      res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-      next();
-    });
-  },
-  configurePreviewServer(server) {
-    server.middlewares.use((_req, res, next) => {
-      res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-      res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-      next();
-    });
-  },
-};
-
+// 同梱の @ffmpeg/core はシングルスレッド版で SharedArrayBuffer を使わないため、
+// COOP/COEP による cross-origin isolation は不要。本番 (GitHub Pages) でも
+// coi-serviceworker を廃止したので、dev/preview でも付けない。
 export default defineConfig({
-  plugins: [crossOriginIsolation, sveltekit()],
+  plugins: [sveltekit()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },

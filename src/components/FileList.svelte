@@ -1,42 +1,91 @@
 <script lang="ts">
   import { getAppState } from "$lib/stores.svelte";
   import { downloadBlob } from "$lib/commands";
+  import { ZipTooLargeError, createZipBlob } from "$lib/zip";
   import FileListItem from "./FileListItem.svelte";
   import OutputFileItem from "./OutputFileItem.svelte";
 
-  const state = getAppState();
+  const appState = getAppState();
 
-  function downloadAll() {
-    for (const entry of state.outputFiles) {
-      if (entry.resultBlob) {
-        downloadBlob(entry.resultBlob, entry.outputName);
-      }
+  let zipping = $state(false);
+  let zipProgress = $state(0);
+  let zipError = $state<string | null>(null);
+
+  function completedOutputs() {
+    return appState.outputFiles.filter((f) => f.resultBlob);
+  }
+
+  /** ZIP を作れない場合の退避。1 ファイルずつダウンロードする */
+  function downloadEachFile() {
+    for (const entry of completedOutputs()) {
+      downloadBlob(entry.resultBlob!, entry.outputName);
     }
+  }
+
+  async function downloadAll() {
+    const outputs = completedOutputs();
+    if (outputs.length === 0) return;
+    // 1 ファイルだけなら ZIP にせずそのまま渡す
+    if (outputs.length === 1) {
+      downloadBlob(outputs[0].resultBlob!, outputs[0].outputName);
+      return;
+    }
+
+    zipping = true;
+    zipProgress = 0;
+    zipError = null;
+    try {
+      const zip = await createZipBlob(
+        outputs.map((entry) => ({
+          name: entry.outputName,
+          blob: entry.resultBlob!,
+        })),
+        (done, total) => {
+          zipProgress = Math.round((done / total) * 100);
+        },
+      );
+      downloadBlob(zip, zipFileName());
+    } catch (e) {
+      console.error("ZIP の作成に失敗しました", e);
+      zipError =
+        e instanceof ZipTooLargeError
+          ? "4GB を超えるため個別にダウンロードします"
+          : "ZIP を作れなかったため個別にダウンロードします";
+      downloadEachFile();
+    } finally {
+      zipping = false;
+    }
+  }
+
+  function zipFileName(): string {
+    const now = new Date();
+    const p = (v: number) => String(v).padStart(2, "0");
+    return `MornAudioProcessor_${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}.zip`;
   }
 </script>
 
-{#if state.files.length > 0 || state.outputFiles.length > 0}
+{#if appState.files.length > 0 || appState.outputFiles.length > 0}
   <div class="file-panels">
     <div class="panel">
       <div class="panel-header">
-        <h3>入力ファイル ({state.files.length})</h3>
-        {#if state.files.length > 0}
+        <h3>入力ファイル ({appState.files.length})</h3>
+        {#if appState.files.length > 0}
           <button
             class="panel-btn clear-btn"
-            onclick={() => state.clearInputFiles()}
-            disabled={state.isProcessing}
+            onclick={() => appState.clearInputFiles()}
+            disabled={appState.isProcessing}
           >
             リストをクリア
           </button>
         {/if}
       </div>
       <div class="panel-items">
-        {#if state.files.length > 0}
-          {#each state.files as entry (entry.id)}
+        {#if appState.files.length > 0}
+          {#each appState.files as entry (entry.id)}
             <FileListItem
               {entry}
-              onRemove={(id) => state.removeFile(id)}
-              disabled={state.isProcessing}
+              onRemove={(id) => appState.removeFile(id)}
+              disabled={appState.isProcessing}
             />
           {/each}
         {:else}
@@ -49,27 +98,40 @@
 
     <div class="panel">
       <div class="panel-header">
-        <h3>出力ファイル ({state.outputFiles.length})</h3>
+        <h3>出力ファイル ({appState.outputFiles.length})</h3>
         <div class="panel-header-actions">
-          {#if state.outputFiles.some((f) => f.resultBlob)}
-            <button class="panel-btn download-btn" onclick={downloadAll}>
-              全てダウンロード
+          {#if appState.outputFiles.some((f) => f.resultBlob)}
+            <button
+              class="panel-btn download-btn"
+              onclick={downloadAll}
+              disabled={zipping}
+            >
+              {#if zipping}
+                ZIP 作成中 {zipProgress}%
+              {:else if appState.outputFiles.filter((f) => f.resultBlob).length > 1}
+                ZIP でまとめてダウンロード
+              {:else}
+                ダウンロード
+              {/if}
             </button>
           {/if}
-          {#if state.outputFiles.length > 0}
+          {#if appState.outputFiles.length > 0}
             <button
               class="panel-btn clear-btn"
-              onclick={() => state.clearOutputFiles()}
-              disabled={state.isProcessing}
+              onclick={() => appState.clearOutputFiles()}
+              disabled={appState.isProcessing}
             >
               リストをクリア
             </button>
           {/if}
         </div>
       </div>
+      {#if zipError}
+        <div class="zip-error">{zipError}</div>
+      {/if}
       <div class="panel-items">
-        {#if state.outputFiles.length > 0}
-          {#each state.outputFiles as entry (entry.id)}
+        {#if appState.outputFiles.length > 0}
+          {#each appState.outputFiles as entry (entry.id)}
             <OutputFileItem {entry} />
           {/each}
         {:else}
@@ -152,5 +214,14 @@
     background: #1a1a16;
     border-radius: 8px;
     border: 1px dashed #2d2d26;
+  }
+  .zip-error {
+    margin: 0 0 8px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    color: #f0a3a3;
+    background: #2a1c1c;
+    border: 1px solid #5a2b2b;
+    border-radius: 6px;
   }
 </style>

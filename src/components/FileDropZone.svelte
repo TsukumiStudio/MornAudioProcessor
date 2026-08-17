@@ -1,68 +1,15 @@
 <script lang="ts">
-  import { getAudioInfo } from "$lib/commands";
+  import { ingestFiles } from "$lib/file-intake";
   import { getAppState } from "$lib/stores.svelte";
-  import type { FileEntry } from "$lib/types";
 
   const appState = getAppState();
 
-  const SUPPORTED_EXTENSIONS = [".mp3", ".wav", ".ogg", ".flac"];
-
   let fileInput: HTMLInputElement;
-
-  function makePlaceholderInfo(name: string): import("$lib/types").AudioFileInfo {
-    return {
-      name,
-      duration_ms: 0,
-      format: "",
-      bitrate: null,
-      sample_rate: null,
-      channels: null,
-      bit_depth: null,
-      peak_db: null,
-      rms_db: null,
-      lufs: null,
-      metadata: {},
-      albumArtUrl: null,
-    };
-  }
-
-  async function addFilesFromInput(fileList: FileList | File[]) {
-    const filesArray = Array.from(fileList);
-    for (const file of filesArray) {
-      const ext = file.name
-        .substring(file.name.lastIndexOf("."))
-        .toLowerCase();
-      if (!SUPPORTED_EXTENSIONS.includes(ext)) continue;
-
-      const existing = appState.files.find((f) => f.file.name === file.name);
-      const entryId = existing?.id ?? crypto.randomUUID();
-
-      if (existing) {
-        appState.updateFile(entryId, { status: "loading", progress: 0 });
-      } else {
-        appState.addFile({
-          id: entryId,
-          file: makePlaceholderInfo(file.name),
-          sourceFile: file,
-          status: "loading",
-          progress: 0,
-        });
-      }
-
-      try {
-        const info = await getAudioInfo(file);
-        appState.updateFile(entryId, { file: info, sourceFile: file, status: "pending", progress: 0 });
-      } catch (e) {
-        console.error(`ファイル情報取得失敗: ${file.name}`, e);
-        appState.updateFile(entryId, { status: "error", error: String(e) });
-      }
-    }
-  }
 
   function handleFileInput(e: Event) {
     const input = e.target as HTMLInputElement;
     if (input.files && input.files.length > 0) {
-      addFilesFromInput(input.files);
+      ingestFiles(input.files);
       input.value = "";
     }
   }

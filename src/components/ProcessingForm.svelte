@@ -16,12 +16,23 @@
   import StereoSettings from "./StereoSettings.svelte";
   import MetadataSettings from "./MetadataSettings.svelte";
   import { getAppState } from "$lib/stores.svelte";
+  import { SvelteSet } from "svelte/reactivity";
 
   const appState = getAppState();
 
   type Tab = "basic" | "frequency" | "dynamics" | "effects" | "channel" | "repair" | "stereo" | "metadata";
   let activeTab = $state<Tab>("basic");
-  let showAdvanced = $state(false);
+  // 処理側 (+page.svelte) が「詳細フィルタを適用するか」の判定に使うため store で持つ
+  let showAdvanced = $derived(appState.showAdvanced);
+
+  // 一度も開いていないタブは初期マウントしない (巨大な設定コンポーネントの構築を遅延させる)。
+  // 一度開いたタブはアンマウントせず class:hidden で隠すだけにして、入力値を保持する (keep-alive)。
+  const visited = new SvelteSet<Tab>(["basic"]);
+
+  function selectTab(id: Tab) {
+    visited.add(id);
+    activeTab = id;
+  }
 
   const basicTabs: { id: Tab; label: string }[] = [
     { id: "basic", label: "基本機能" },
@@ -53,7 +64,7 @@
       <label class="advanced-toggle">
         <input
           type="checkbox"
-          bind:checked={showAdvanced}
+          bind:checked={appState.showAdvanced}
           disabled={appState.isProcessing}
         />
         高度な機能
@@ -64,7 +75,7 @@
         <button
           class="tab-btn"
           class:active={activeTab === tab.id}
-          onclick={() => (activeTab = tab.id)}
+          onclick={() => selectTab(tab.id)}
           disabled={appState.isProcessing}
         >
           {tab.label}
@@ -85,30 +96,44 @@
         </div>
       </div>
     </div>
-    <div class="tab-content" class:hidden={activeTab !== "frequency"}>
-      <FrequencySettings />
-      <FrequencySettingsExt />
-    </div>
-    <div class="tab-content" class:hidden={activeTab !== "dynamics"}>
-      <DynamicsSettings />
-      <DynamicsSettingsExt />
-    </div>
-    <div class="tab-content" class:hidden={activeTab !== "effects"}>
-      <EffectSettings />
-      <EffectSettingsExt />
-    </div>
-    <div class="tab-content" class:hidden={activeTab !== "channel"}>
-      <ChannelSettings />
-    </div>
-    <div class="tab-content" class:hidden={activeTab !== "repair"}>
-      <RepairSettings />
-    </div>
-    <div class="tab-content" class:hidden={activeTab !== "stereo"}>
-      <StereoSettings />
-    </div>
-    <div class="tab-content" class:hidden={activeTab !== "metadata"}>
-      <MetadataSettings />
-    </div>
+    {#if visited.has("frequency")}
+      <div class="tab-content" class:hidden={activeTab !== "frequency"}>
+        <FrequencySettings />
+        <FrequencySettingsExt />
+      </div>
+    {/if}
+    {#if visited.has("dynamics")}
+      <div class="tab-content" class:hidden={activeTab !== "dynamics"}>
+        <DynamicsSettings />
+        <DynamicsSettingsExt />
+      </div>
+    {/if}
+    {#if visited.has("effects")}
+      <div class="tab-content" class:hidden={activeTab !== "effects"}>
+        <EffectSettings />
+        <EffectSettingsExt />
+      </div>
+    {/if}
+    {#if visited.has("channel")}
+      <div class="tab-content" class:hidden={activeTab !== "channel"}>
+        <ChannelSettings />
+      </div>
+    {/if}
+    {#if visited.has("repair")}
+      <div class="tab-content" class:hidden={activeTab !== "repair"}>
+        <RepairSettings />
+      </div>
+    {/if}
+    {#if visited.has("stereo")}
+      <div class="tab-content" class:hidden={activeTab !== "stereo"}>
+        <StereoSettings />
+      </div>
+    {/if}
+    {#if visited.has("metadata")}
+      <div class="tab-content" class:hidden={activeTab !== "metadata"}>
+        <MetadataSettings />
+      </div>
+    {/if}
   </section>
 
 <style>
