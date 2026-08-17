@@ -95,6 +95,15 @@
       appState.ffmpegInfo !== null,
   );
 
+  // 大量ファイルではファイルごとの進捗バーだけでは全体像が分からないので件数を出す
+  let batchDone = $derived(
+    appState.files.filter((f) => f.status === "completed" || f.status === "error")
+      .length,
+  );
+  let analyzeDone = $derived(
+    appState.files.filter((f) => f.status !== "loading").length,
+  );
+
   async function startProcessing() {
     if (!canStart) return;
     processingError = null;
@@ -197,14 +206,14 @@
         const inputName = inputNames[index];
         if (result.success && result.blob) {
           appState.updateFileProgress(inputName, 100, "completed");
-          appState.addOutputResult(outputName, result.blob, result.outputInfo ?? null);
+          appState.addOutputResult(outputName, result.blob, result.outputInfo ?? null, index);
         } else if (result.cancelled) {
           // 中止はエラーではないので、やり直せるよう pending に戻す
           appState.updateFileProgress(inputName, 0, "pending");
         } else {
           // error が空でも processing のまま固まらせない
           appState.updateFileProgress(inputName, 0, "error");
-          appState.addOutputError(outputName, result.error || "不明なエラー");
+          appState.addOutputError(outputName, result.error || "不明なエラー", index);
         }
       },
     );
@@ -273,6 +282,11 @@
       <FileDropZone />
       <FileList />
       <div class="action-bar">
+        {#if appState.isProcessing}
+          <span class="batch-progress">{batchDone} / {appState.files.length} 完了</span>
+        {:else if isAnalyzing}
+          <span class="batch-progress">{analyzeDone} / {appState.files.length} 解析済み</span>
+        {/if}
         <button
           class="reset-btn"
           onclick={resetSettings}
@@ -482,6 +496,12 @@
   .reset-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .batch-progress {
+    margin-right: auto;
+    font-size: 0.8rem;
+    color: #a3a3a3;
+    font-variant-numeric: tabular-nums;
   }
   .cancel-btn {
     padding: 10px 20px;

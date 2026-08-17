@@ -60,6 +60,14 @@ let showAdvanced = $state(false);
  * blob URL はページ生存中 Blob をピン留めするため、破棄・差し替え時に必ず呼ぶ。
  * nextUrl に同じ URL が引き継がれる場合は解放しない。
  */
+/**
+ * 出力リストを入力順に並べる。
+ * 並列処理では完了順に結果が返るため、そのまま並べると入力と対応が取れなくなる。
+ */
+function sortByOrder(entries: OutputFileEntry[]): OutputFileEntry[] {
+  return [...entries].sort((a, b) => a.order - b.order);
+}
+
 function revokeAlbumArt(entry: FileEntry, nextUrl?: string | null) {
   const url = entry.file?.albumArtUrl;
   if (url && url !== nextUrl) URL.revokeObjectURL(url);
@@ -351,6 +359,7 @@ export function getAppState() {
       outputName: string,
       blob: Blob,
       outputInfo: AudioFileInfo | null,
+      order = 0,
     ) {
       const existing = outputFiles.findIndex((f) => f.outputName === outputName);
       const entry: OutputFileEntry = {
@@ -359,26 +368,28 @@ export function getAppState() {
         resultBlob: blob,
         outputInfo,
         status: "completed",
+        order,
       };
-      if (existing >= 0) {
-        outputFiles = outputFiles.map((f, i) => (i === existing ? entry : f));
-      } else {
-        outputFiles = [...outputFiles, entry];
-      }
+      outputFiles = sortByOrder(
+        existing >= 0
+          ? outputFiles.map((f, i) => (i === existing ? entry : f))
+          : [...outputFiles, entry],
+      );
     },
-    addOutputError(outputName: string, error: string) {
+    addOutputError(outputName: string, error: string, order = 0) {
       const existing = outputFiles.findIndex((f) => f.outputName === outputName);
       const entry: OutputFileEntry = {
         id: existing >= 0 ? outputFiles[existing].id : crypto.randomUUID(),
         outputName,
         status: "error",
         error,
+        order,
       };
-      if (existing >= 0) {
-        outputFiles = outputFiles.map((f, i) => (i === existing ? entry : f));
-      } else {
-        outputFiles = [...outputFiles, entry];
-      }
+      outputFiles = sortByOrder(
+        existing >= 0
+          ? outputFiles.map((f, i) => (i === existing ? entry : f))
+          : [...outputFiles, entry],
+      );
     },
   };
 }

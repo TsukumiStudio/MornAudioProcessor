@@ -29,6 +29,7 @@ import {
 } from "./ffmpeg-pool";
 import {
   MemoryGate,
+  estimateAnalysisBytes,
   estimateJobBytes,
   isFatalInstanceError,
 } from "./pool-policy";
@@ -123,13 +124,10 @@ export async function analyzeFiles(
       if (index >= files.length) return;
       const file = files[index];
 
-      // 解析は中間ファイルを作らないので見積りは 1 コピー分
-      const bytes = estimateJobBytes({
+      // 解析は拡張子から PCM 展開後のサイズを見積もる（変換とは別式）
+      const bytes = estimateAnalysisBytes({
         inputSize: file.size,
-        durationMs: null,
-        sampleRate: null,
-        channels: null,
-        usesIntermediate: false,
+        fileName: file.name,
       });
       await gate.admit(bytes);
       try {

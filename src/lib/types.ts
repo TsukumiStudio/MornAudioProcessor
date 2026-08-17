@@ -675,6 +675,8 @@ export interface OutputEntry {
   resultBlob: Blob;
   status: "completed";
   error?: undefined;
+  /** 入力リスト上の位置。並列処理でも表示順を入力順に保つために使う */
+  order: number;
 }
 
 export interface OutputErrorEntry {
@@ -684,6 +686,7 @@ export interface OutputErrorEntry {
   resultBlob?: undefined;
   status: "error";
   error: string;
+  order: number;
 }
 
 export type OutputFileEntry = OutputEntry | OutputErrorEntry;

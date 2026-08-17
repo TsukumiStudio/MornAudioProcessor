@@ -5,6 +5,7 @@ import {
   SLOT_RECYCLE_BYTES,
   SLOT_RECYCLE_FILES,
   SlotUsageTracker,
+  estimateAnalysisBytes,
   isFatalInstanceError,
   WORKING_SET_BYTES,
   estimateJobBytes,
@@ -121,6 +122,45 @@ describe("estimateJobBytes", () => {
       usesIntermediate: false,
     });
     expect(bytes).toBe(1 * MIB + 48000 * 2 * 4 + WORKING_SET_BYTES);
+  });
+});
+
+describe("estimateAnalysisBytes", () => {
+  const est = (fileName: string, mib: number) =>
+    estimateAnalysisBytes({ inputSize: mib * MIB, fileName });
+
+  it("wav は Float32 展開分の 2 倍で見積もる", () => {
+    // 50MB の wav → 入力 50 + PCM 100 + 作業領域 32
+    expect(est("a.wav", 50)).toBe(182 * MIB);
+  });
+
+  it("flac は圧縮率を考えて 4 倍", () => {
+    expect(est("a.flac", 50)).toBe(50 * MIB + 200 * MIB + 32 * MIB);
+  });
+
+  it("mp3 / ogg は 12 倍", () => {
+    expect(est("a.mp3", 5)).toBe(5 * MIB + 60 * MIB + 32 * MIB);
+    expect(est("a.ogg", 5)).toBe(5 * MIB + 60 * MIB + 32 * MIB);
+  });
+
+  it("拡張子の大文字小文字を区別しない", () => {
+    expect(est("A.WAV", 50)).toBe(est("a.wav", 50));
+  });
+
+  it("未知の拡張子は圧縮形式として安全側に倒す", () => {
+    expect(est("a.m4a", 5)).toBe(est("a.mp3", 5));
+  });
+
+  it("大きい wav でも変換用の見積りより小さい（無駄な直列化を避けられる）", () => {
+    const analysis = est("a.wav", 50);
+    const conversion = estimateJobBytes({
+      inputSize: 50 * MIB,
+      durationMs: null,
+      sampleRate: null,
+      channels: null,
+      usesIntermediate: false,
+    });
+    expect(analysis).toBeLessThan(conversion);
   });
 });
 
