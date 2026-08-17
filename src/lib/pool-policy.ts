@@ -66,6 +66,34 @@ export function estimateJobBytes(params: {
 }
 
 /**
+ * 解析 1 件あたりのメモリ見積り。
+ *
+ * 解析は「入力を wasm の MEMFS に置いてヘッダを読む」+「ネイティブデコードした
+ * PCM を JS 側に持つ」の 2 つ。変換と違いフルデコードしないので作業領域は小さい。
+ *
+ * PCM の大きさは圧縮率で決まるため、拡張子から倍率を見積もる。ここを一律 12 倍に
+ * すると、50MB の wav が 750MB と見積もられて無駄に直列化される。
+ */
+export function estimateAnalysisBytes(params: {
+  inputSize: number;
+  fileName: string;
+}): number {
+  const { inputSize, fileName } = params;
+  const ext = fileName.slice(fileName.lastIndexOf(".") + 1).toLowerCase();
+
+  // Float32 に展開したときの入力サイズに対する倍率
+  const pcmRatio =
+    ext === "wav"
+      ? 2 // 16bit PCM → f32
+      : ext === "flac"
+        ? 4 // 圧縮率 50% 程度 + f32 展開
+        : 12; // mp3 / ogg などの圧縮形式
+
+  const ANALYSIS_WORKING_SET = 32 * MIB;
+  return inputSize + inputSize * pcmRatio + ANALYSIS_WORKING_SET;
+}
+
+/**
  * 1 インスタンスが処理する累積バイト数の上限。
  * Emscripten のヒープは一度伸びると縮まないため、大きいファイルを続けて処理すると
  * スロットが高水位のメモリを抱えたままになる。これを超えたら作り直して解放する。
