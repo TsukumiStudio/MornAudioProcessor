@@ -32,8 +32,7 @@ import {
   estimateJobBytes,
   isFatalInstanceError,
 } from "./pool-policy";
-import { decodeAudioFile } from "./audio-decode";
-import { analyzeLufs, analyzePeakRms } from "./loudness";
+import { decodeAudioFile, measureLoudness } from "./audio-decode";
 
 let readyPromise: Promise<FfmpegInfo> | null = null;
 /** 変換バッチの実行中か（解析側が並列度を落とす判断に使う） */
@@ -207,8 +206,8 @@ async function measureWithNativeDecode(
   const decoded = await decodeAudioFile(source, hintedRate);
   if (!decoded) return null;
 
-  const { peakDb, rmsDb } = analyzePeakRms(decoded.channels);
-  const lufs = analyzeLufs(decoded.channels, decoded.sampleRate);
+  // 計測は Worker で行う（メインスレッドだと長尺ファイルで UI が固まる）
+  const { peakDb, rmsDb, lufs } = await measureLoudness(decoded);
 
   return {
     ...header,
