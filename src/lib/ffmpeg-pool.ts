@@ -157,6 +157,18 @@ export function discardSlot(slot: number) {
   slotUsage.reset(slot);
 }
 
+/**
+ * 全インスタンスを即座に破棄する。
+ * terminate() は実行中の exec の Promise を reject するので、処理の中止に使える。
+ */
+export function terminateAll() {
+  for (let i = 0; i < instances.length; i++) {
+    instances[i]?.terminate();
+    instances[i] = null;
+  }
+  slotUsage.resetAll();
+}
+
 /** primary 以外を破棄する。Emscripten のヒープは縮まないのでバッチ後に解放する */
 export function disposeExtras() {
   for (let i = 1; i < instances.length; i++) {

@@ -25,6 +25,7 @@ import {
   memoryBudgetBytes,
   noteSlotUsage,
   resetPool,
+  terminateAll,
 } from "./ffmpeg-pool";
 import {
   MemoryGate,
@@ -35,6 +36,23 @@ import {
 let readyPromise: Promise<FfmpegInfo> | null = null;
 /** 変換バッチの実行中か（解析側が並列度を落とす判断に使う） */
 let batchRunning = false;
+/** 中止が要求されたか */
+let cancelRequested = false;
+
+/**
+ * 実行中の変換バッチを中止する。
+ * 全インスタンスを terminate すると実行中の exec が即座に reject されるので、
+ * 長いファイルの途中でも待たずに止まる。未着手のファイルは pending のまま残す。
+ */
+export function cancelProcessing() {
+  if (!batchRunning) return;
+  cancelRequested = true;
+  terminateAll();
+}
+
+export function isCancelRequested(): boolean {
+  return cancelRequested;
+}
 
 export function initFFmpeg(
   onProgress?: (message: string) => void,
@@ -540,6 +558,7 @@ export async function processFiles(
 
   // 変換中は解析側の並列度を 1 に落とさせる（メモリ予算を取り合わないため）
   batchRunning = true;
+  cancelRequested = false;
   const budget = memoryBudgetBytes();
   const slots = Math.min(maxParallel(), jobs.length);
 
@@ -588,6 +607,8 @@ export async function processFiles(
 
   const worker = async (slot: number) => {
     while (true) {
+      // 中止されたら未着手のファイルには手を付けない（pending のまま残す）
+      if (cancelRequested) return;
       const index = nextIndex++;
       if (index >= jobs.length) return;
 
@@ -595,6 +616,11 @@ export async function processFiles(
       await gate.admit(bytes);
       try {
         let result = await runOnSlot(slot, jobs[index], onProgress);
+        if (cancelRequested) {
+          // 中止による失敗はエラーとして扱わない
+          onResult?.({ ...result, success: false, cancelled: true }, index);
+          return;
+        }
         if (result.instanceBroken) {
           // メモリ確保失敗などでインスタンスが壊れた可能性がある。作り直して
           // 1 回だけやり直す（メモリ圧による一時的な失敗はこれで救える）
