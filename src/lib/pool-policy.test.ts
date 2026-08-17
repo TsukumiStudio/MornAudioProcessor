@@ -3,7 +3,9 @@ import {
   HARD_MAX_PARALLEL,
   MemoryGate,
   SLOT_RECYCLE_BYTES,
+  SLOT_RECYCLE_FILES,
   SlotUsageTracker,
+  isFatalInstanceError,
   WORKING_SET_BYTES,
   estimateJobBytes,
   resolveBudgetBytes,
@@ -168,9 +170,60 @@ describe("SlotUsageTracker", () => {
 
   it("既定の上限は 512MiB", () => {
     expect(SLOT_RECYCLE_BYTES).toBe(512 * MIB);
-    const t = new SlotUsageTracker();
+    const t = new SlotUsageTracker(SLOT_RECYCLE_BYTES, Infinity);
     expect(t.add(0, 511 * MIB)).toBe(false);
     expect(t.add(0, 1 * MIB)).toBe(true);
+  });
+
+  it("小さいファイルでも件数の上限で作り直す（ヒープ断片化対策）", () => {
+    expect(SLOT_RECYCLE_FILES).toBe(50);
+    const t = new SlotUsageTracker();
+    for (let i = 1; i < SLOT_RECYCLE_FILES; i++) {
+      expect(t.add(0, 1024), `${i} 件目`).toBe(false);
+    }
+    expect(t.add(0, 1024)).toBe(true);
+    expect(t.fileCount(0)).toBe(SLOT_RECYCLE_FILES);
+  });
+
+  it("件数はスロットごとに独立して数える", () => {
+    const t = new SlotUsageTracker(Infinity, 3);
+    t.add(0, 1);
+    t.add(0, 1);
+    expect(t.add(1, 1)).toBe(false);
+    expect(t.add(0, 1)).toBe(true);
+  });
+});
+
+describe("isFatalInstanceError", () => {
+  it("wasm のトラップをインスタンス破損として扱う", () => {
+    // 実際に 221 ファイル投入時に観測されたメッセージ
+    expect(
+      isFatalInstanceError("RuntimeError: memory access out of bounds"),
+    ).toBe(true);
+    expect(isFatalInstanceError("RuntimeError: unreachable")).toBe(true);
+    expect(isFatalInstanceError("table index is out of bounds")).toBe(true);
+  });
+
+  it("メモリ不足と abort を検知する", () => {
+    expect(isFatalInstanceError("Out of memory")).toBe(true);
+    expect(isFatalInstanceError("Aborted(OOM)")).toBe(true);
+  });
+
+  it("破棄済み・未ロードのインスタンスを検知する", () => {
+    expect(isFatalInstanceError("called FFmpeg.terminate()")).toBe(true);
+    expect(isFatalInstanceError("ffmpeg is not loaded, call `await ffmpeg.load()` first")).toBe(true);
+  });
+
+  it("ファイル固有の失敗はインスタンス破損として扱わない", () => {
+    // これで作り直すと、変換できないファイル1つごとに wasm を再ロードしてしまう
+    expect(
+      isFatalInstanceError("ffmpeg の実行に失敗しました（終了コード 1）"),
+    ).toBe(false);
+    expect(isFatalInstanceError("Invalid data found when processing input")).toBe(
+      false,
+    );
+    expect(isFatalInstanceError("No such file or directory")).toBe(false);
+    expect(isFatalInstanceError("")).toBe(false);
   });
 });
 

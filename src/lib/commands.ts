@@ -26,7 +26,11 @@ import {
   noteSlotUsage,
   resetPool,
 } from "./ffmpeg-pool";
-import { MemoryGate, estimateJobBytes } from "./pool-policy";
+import {
+  MemoryGate,
+  estimateJobBytes,
+  isFatalInstanceError,
+} from "./pool-policy";
 
 let readyPromise: Promise<FfmpegInfo> | null = null;
 
@@ -63,10 +67,31 @@ export function resetFFmpeg(): Promise<void> {
 
 export async function getAudioInfo(file: File): Promise<AudioFileInfo> {
   try {
-    return await runProbe(file);
+    return await probeWithRecovery(file);
   } finally {
     // run() を抜けたあとで判定する（実行中のインスタンスを破棄しないため）
     notePrimaryUsage(file.size);
+  }
+}
+
+/**
+ * 解析中に wasm がトラップした場合、そのインスタンスは以降も使えない。
+ * 作り直して 1 回だけやり直す。これが無いと 1 件の失敗（メモリ不足など）で
+ * 残り全ファイルが同じエラーを出し続ける。
+ */
+async function probeWithRecovery(file: File): Promise<AudioFileInfo> {
+  try {
+    return await runProbe(file);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (!isFatalInstanceError(message)) throw e;
+
+    console.warn(
+      `FFmpeg インスタンスが壊れたため作り直して再試行します: ${file.name}`,
+      e,
+    );
+    discardSlot(0);
+    return runProbe(file);
   }
 }
 
@@ -75,27 +100,43 @@ function runProbe(file: File): Promise<AudioFileInfo> {
   return getPrimary().run(async (ff) => {
     const tempName = "probe_input" + getExtWithDot(file.name);
     const artOut = "probe_art_extract.jpg";
+    // アート抽出を試みたか（試していないファイルを削除しようとしないため）
+    let hasArtOutput = false;
 
     try {
       await ff.writeFile(tempName, await fetchFile(file));
-      const info = await probeAudioInfo(ff, tempName, file.size);
+      const { hasVideoStream, ...info } = await probeAudioInfo(
+        ff,
+        tempName,
+        file.size,
+      );
 
-      // 埋め込みアルバムアートの抽出を試みる（無い場合は exec が非 0 で終わる）
+      // アルバムアートは映像ストリームがある場合だけ抽出する。
+      // 無いファイルに対して抽出 exec を走らせると必ず失敗し、それを繰り返すと
+      // ffmpeg.wasm の worker が固まって以降のファイルが一切処理されなくなる
+      // （実測: 17 ファイル目前後でハング）。
       let albumArtUrl: string | null = null;
-      try {
-        const code = await ff.exec(["-i", tempName, "-an", "-vcodec", "copy", "-y", artOut]);
-        if (code === 0) {
+      if (hasVideoStream) {
+        hasArtOutput = true;
+        try {
+          // -update 1 は単一画像を書き出す指定。付けないと image2 muxer が
+          // 「連番パターンがない」と警告し、終了コードも信頼できなくなる。
+          // 成否は終了コードではなく書き出されたバイト列で判断する。
+          await ff.exec([
+            "-i", tempName, "-an", "-vcodec", "copy", "-update", "1", "-y", artOut,
+          ]);
           const artData = await ff.readFile(artOut);
           if (artData instanceof Uint8Array && artData.length > 100) {
             const mime = artData[0] === 0x89 && artData[1] === 0x50 ? "image/png" : "image/jpeg";
             albumArtUrl = URL.createObjectURL(new Blob([artData], { type: mime }));
           }
-        }
-      } catch {}
+        } catch {}
+      }
 
       return { ...info, name: file.name, albumArtUrl };
     } finally {
-      for (const name of [tempName, artOut]) {
+      const cleanup = hasArtOutput ? [tempName, artOut] : [tempName];
+      for (const name of cleanup) {
         try {
           await ff.deleteFile(name);
         } catch {}
@@ -180,12 +221,16 @@ async function detectLufs(
   return { input_i, input_tp, input_lra, input_thresh, target_offset };
 }
 
+/** プローブ結果。hasVideoStream は埋め込みアルバムアートの有無判定に使う */
+type ProbeResult = AudioFileInfo & { hasVideoStream: boolean };
+
 async function probeAudioInfo(
   ff: FFmpeg,
   fileName: string,
   blobSize: number,
-): Promise<AudioFileInfo> {
+): Promise<ProbeResult> {
   let durationMs = 0;
+  let hasVideoStream = false;
   let sampleRate: string | null = null;
   let channels: number | null = null;
   let bitrate: string | null = null;
@@ -198,6 +243,12 @@ async function probeAudioInfo(
   let metadataCaptured = false;
 
   const logHandler = ({ message }: { message: string }) => {
+    // 映像ストリーム（= 埋め込みアルバムアート）の有無。
+    // 無いのにアート抽出 exec を走らせると失敗し、それを繰り返すと
+    // ffmpeg.wasm の worker が固まるため、事前に判定して呼ばないようにする。
+    if (/Stream #\d+:\d+.*: Video:/.test(message)) {
+      hasVideoStream = true;
+    }
     // メタデータブロックの解析（最初の Metadata: ブロックのみ）
     if (!metadataCaptured && /^\s+Metadata:\s*$/.test(message)) {
       inMetadata = true;
@@ -319,6 +370,7 @@ async function probeAudioInfo(
     lufs: lufsValue !== null ? Math.round(lufsValue * 10) / 10 : null,
     metadata: parsedMetadata,
     albumArtUrl: null,
+    hasVideoStream,
   };
 }
 
@@ -458,6 +510,29 @@ export async function processFiles(
   let nextIndex = 0;
   const gate = new MemoryGate(budget);
 
+  /** 指定スロットで 1 件処理する。run() 自体の失敗も結果オブジェクトに正規化する */
+  const runOnSlot = async (
+    slot: number,
+    job: ProcessingJob,
+    progress?: (info: ProgressInfo) => void,
+  ): Promise<ProcessingResult> => {
+    try {
+      return await getSlot(slot).run((ff) =>
+        runProcessFile(ff, job.options, progress),
+      );
+    } catch (e) {
+      return {
+        input_name: job.options.input_file.name,
+        output_name: job.options.output_name,
+        blob: null,
+        success: false,
+        error: e instanceof Error ? e.message : String(e),
+        outputInfo: null,
+        instanceBroken: true,
+      };
+    }
+  };
+
   const worker = async (slot: number) => {
     while (true) {
       const index = nextIndex++;
@@ -466,31 +541,18 @@ export async function processFiles(
       const bytes = estimates[index];
       await gate.admit(bytes);
       try {
-        const result = await getSlot(slot).run((ff) =>
-          runProcessFile(ff, jobs[index].options, onProgress),
-        );
+        let result = await runOnSlot(slot, jobs[index], onProgress);
         if (result.instanceBroken) {
-          // メモリ確保失敗などでインスタンスが壊れた可能性がある。次の仕事の前に作り直す
+          // メモリ確保失敗などでインスタンスが壊れた可能性がある。作り直して
+          // 1 回だけやり直す（メモリ圧による一時的な失敗はこれで救える）
           discardSlot(slot);
+          result = await runOnSlot(slot, jobs[index], onProgress);
+          if (result.instanceBroken) discardSlot(slot);
         } else {
           // 累積処理量が閾値を超えたらインスタンスを作り直して wasm ヒープを解放する
           noteSlotUsage(slot, bytes);
         }
         onResult?.(result, index);
-      } catch (e) {
-        // run() 自体の失敗（インスタンス破棄など）はここに来る
-        discardSlot(slot);
-        onResult?.(
-          {
-            input_name: jobs[index].options.input_file.name,
-            output_name: jobs[index].options.output_name,
-            blob: null,
-            success: false,
-            error: e instanceof Error ? e.message : String(e),
-            outputInfo: null,
-          },
-          index,
-        );
       } finally {
         gate.release(bytes);
       }

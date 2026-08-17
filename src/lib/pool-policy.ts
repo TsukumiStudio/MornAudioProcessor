@@ -73,30 +73,69 @@ export function estimateJobBytes(params: {
  */
 export const SLOT_RECYCLE_BYTES = 512 * 1024 * 1024;
 
+/**
+ * 1 インスタンスが処理するファイル数の上限。
+ * バイト数が小さくても exec を繰り返すとヒープが断片化し、ある時点で大きな確保に
+ * 失敗して `RuntimeError: memory access out of bounds` になる。件数でも区切る。
+ */
+export const SLOT_RECYCLE_FILES = 50;
+
 /** スロットごとの累積処理量を数え、作り直しの必要を判断する */
 export class SlotUsageTracker {
   private bytes = new Map<number, number>();
+  private counts = new Map<number, number>();
 
-  constructor(private readonly limit: number = SLOT_RECYCLE_BYTES) {}
+  constructor(
+    private readonly byteLimit: number = SLOT_RECYCLE_BYTES,
+    private readonly fileLimit: number = SLOT_RECYCLE_FILES,
+  ) {}
 
-  /** 処理量を加算し、上限に達したら true（呼び出し側がインスタンスを破棄する） */
+  /** 処理量を加算し、いずれかの上限に達したら true（呼び出し側が破棄する） */
   add(slot: number, bytes: number): boolean {
-    const total = (this.bytes.get(slot) ?? 0) + bytes;
-    this.bytes.set(slot, total);
-    return total >= this.limit;
+    const totalBytes = (this.bytes.get(slot) ?? 0) + bytes;
+    const totalFiles = (this.counts.get(slot) ?? 0) + 1;
+    this.bytes.set(slot, totalBytes);
+    this.counts.set(slot, totalFiles);
+    return totalBytes >= this.byteLimit || totalFiles >= this.fileLimit;
   }
 
   used(slot: number): number {
     return this.bytes.get(slot) ?? 0;
   }
 
+  fileCount(slot: number): number {
+    return this.counts.get(slot) ?? 0;
+  }
+
   reset(slot: number): void {
     this.bytes.delete(slot);
+    this.counts.delete(slot);
   }
 
   resetAll(): void {
     this.bytes.clear();
+    this.counts.clear();
   }
+}
+
+/**
+ * インスタンス自体が壊れた可能性のあるエラーか。
+ *
+ * wasm がトラップした場合（ヒープ確保失敗など）、そのインスタンスは以降も使えない。
+ * 検知して作り直さないと、1 件の失敗が残り全件を巻き込む。
+ */
+export function isFatalInstanceError(message: string): boolean {
+  const fatal = [
+    "memory access out of bounds", // wasm トラップ（ヒープ確保失敗）
+    "out of memory",
+    "Aborted", // Emscripten の abort()
+    "table index is out of bounds",
+    "unreachable", // wasm unreachable トラップ
+    "called FFmpeg.terminate()", // インスタンスが破棄された
+    "ffmpeg is not loaded", // ロード前のインスタンスを触った
+  ];
+  const lower = message.toLowerCase();
+  return fatal.some((needle) => lower.includes(needle.toLowerCase()));
 }
 
 /**
