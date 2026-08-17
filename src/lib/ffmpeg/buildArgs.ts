@@ -1,5 +1,7 @@
 import type { ProcessingOptions } from "../types";
 import { frequencyGroup } from "../schema/frequency";
+import { repairGroup } from "../schema/repair";
+import { stereoGroup } from "../schema/stereo";
 import { serializeGroup } from "../schema/helpers";
 import type { FilterDef } from "../schema/types";
 
@@ -244,54 +246,18 @@ export function buildFFmpegArgs(options: ProcessingOptions): string[] {
   }
 
   // --- Repair ---
-  if (options.repair_filter) {
-    const rf = options.repair_filter;
-    if (rf.adeclick.enabled) {
-      const a = rf.adeclick;
-      filters.push(`adeclick=window=${a.window}:overlap=${a.overlap}:arorder=${a.arorder}:threshold=${a.threshold}:burst=${a.burst}:method=${a.method}`);
-    }
-    if (rf.adeclip.enabled) {
-      const a = rf.adeclip;
-      filters.push(`adeclip=window=${a.window}:overlap=${a.overlap}:arorder=${a.arorder}:threshold=${a.threshold}:hsize=${a.hsize}:method=${a.method}`);
-    }
-    if (rf.afwtdn.enabled) {
-      const a = rf.afwtdn;
-      filters.push(`afwtdn=sigma=${a.sigma}:levels=${a.levels}:wavet=${a.wavet}:percent=${a.percent}:profile=${a.profile ? 1 : 0}:adaptive=${a.adaptive ? 1 : 0}:samples=${a.samples}:softness=${a.softness}`);
-    }
-    if (rf.deesser.enabled) {
-      const d = rf.deesser;
-      filters.push(`deesser=i=${d.i}:m=${d.m}:f=${d.f}:s=${d.s}`);
-    }
-  }
+  filters.push(
+    ...serializeGroup(schemaGroup(repairGroup), options.repair_filter, {
+      input_sample_rate: options.input_sample_rate,
+    }),
+  );
 
   // --- Stereo ---
-  if (options.stereo_filter) {
-    const sf = options.stereo_filter;
-    if (sf.stereotools.enabled) {
-      const s = sf.stereotools;
-      filters.push(`stereotools=level_in=${s.level_in}:level_out=${s.level_out}:balance_in=${s.balance_in}:balance_out=${s.balance_out}:softclip=${s.softclip ? 1 : 0}:mutel=${s.mutel ? 1 : 0}:muter=${s.muter ? 1 : 0}:phasel=${s.phasel ? 1 : 0}:phaser=${s.phaser ? 1 : 0}:mode=${s.mode}:slev=${s.slev}:sbal=${s.sbal}:mlev=${s.mlev}:mpan=${s.mpan}:base=${s.base}:delay=${s.delay}:sclevel=${s.sclevel}:phase=${s.phase}:bmode_in=${s.bmode_in}:bmode_out=${s.bmode_out}`);
-    }
-    if (sf.stereowiden.enabled) {
-      const s = sf.stereowiden;
-      filters.push(`stereowiden=delay=${s.delay}:feedback=${s.feedback}:crossfeed=${s.crossfeed}:drymix=${s.drymix}`);
-    }
-    if (sf.extrastereo.enabled) {
-      const e = sf.extrastereo;
-      filters.push(`extrastereo=m=${e.m}:c=${e.c ? 1 : 0}`);
-    }
-    if (sf.crossfeed.enabled) {
-      const c = sf.crossfeed;
-      filters.push(`crossfeed=strength=${c.strength}:range=${c.range}:slope=${c.slope}:level_in=${c.level_in}:level_out=${c.level_out}`);
-    }
-    if (sf.haas.enabled) {
-      const h = sf.haas;
-      filters.push(`haas=level_in=${h.level_in}:level_out=${h.level_out}:side_gain=${h.side_gain}:middle_source=${h.middle_source}:middle_phase=${h.middle_phase ? 1 : 0}:left_delay=${h.left_delay}:left_balance=${h.left_balance}:left_gain=${h.left_gain}:left_phase=${h.left_phase ? 1 : 0}:right_delay=${h.right_delay}:right_balance=${h.right_balance}:right_gain=${h.right_gain}:right_phase=${h.right_phase ? 1 : 0}`);
-    }
-    if (sf.dialoguenhance.enabled) {
-      const d = sf.dialoguenhance;
-      filters.push(`dialoguenhance=original=${d.original}:enhance=${d.enhance}:voice=${d.voice}`);
-    }
-  }
+  filters.push(
+    ...serializeGroup(schemaGroup(stereoGroup), options.stereo_filter, {
+      input_sample_rate: options.input_sample_rate,
+    }),
+  );
 
   if (options.channel_filter) {
     const cf = options.channel_filter;
