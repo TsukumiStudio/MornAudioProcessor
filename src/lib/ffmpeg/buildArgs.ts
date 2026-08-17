@@ -1,5 +1,7 @@
 import type { ProcessingOptions } from "../types";
+import { dynamicsGroup } from "../schema/dynamics";
 import { frequencyGroup } from "../schema/frequency";
+import { frequencyExtGroup } from "../schema/frequencyExt";
 import { repairGroup } from "../schema/repair";
 import { stereoGroup } from "../schema/stereo";
 import { serializeGroup } from "../schema/helpers";
@@ -68,21 +70,11 @@ export function buildFFmpegArgs(options: ProcessingOptions): string[] {
     }),
   );
 
-  if (options.dynamics_filter) {
-    const df = options.dynamics_filter;
-    if (df.compressor.enabled) {
-      const c = df.compressor;
-      filters.push(`acompressor=threshold=${c.threshold}:ratio=${c.ratio}:attack=${c.attack}:release=${c.release}:makeup=${c.makeup}:knee=${c.knee}:mode=${c.mode}:detection=${c.detection}:link=${c.link}:mix=${c.mix}:level_in=${c.level_in}`);
-    }
-    if (df.limiter.enabled) {
-      const l = df.limiter;
-      filters.push(`alimiter=limit=${l.limit}:attack=${l.attack}:release=${l.release}:level=${l.level ? 1 : 0}:level_in=${l.level_in}:level_out=${l.level_out}:asc=${l.asc ? 1 : 0}:asc_level=${l.asc_level}`);
-    }
-    if (df.gate.enabled) {
-      const g = df.gate;
-      filters.push(`agate=threshold=${g.threshold}:ratio=${g.ratio}:range=${g.range}:attack=${g.attack}:release=${g.release}:makeup=${g.makeup}:knee=${g.knee}:mode=${g.mode}:detection=${g.detection}:link=${g.link}`);
-    }
-  }
+  filters.push(
+    ...serializeGroup(schemaGroup(dynamicsGroup), options.dynamics_filter, {
+      input_sample_rate: options.input_sample_rate,
+    }),
+  );
 
   if (options.effect_filter) {
     const ef = options.effect_filter;
@@ -123,46 +115,13 @@ export function buildFFmpegArgs(options: ProcessingOptions): string[] {
     }
   }
 
-  // --- Frequency Ext ---
-  if (options.frequency_filter_ext) {
-    const fe = options.frequency_filter_ext;
-    if (fe.bass.enabled) {
-      const b = fe.bass;
-      filters.push(`bass=g=${b.gain}:f=${b.frequency}:t=${b.width_type}:w=${b.width}:p=${b.poles}:m=${b.mix}`);
-    }
-    if (fe.treble.enabled) {
-      const t = fe.treble;
-      filters.push(`treble=g=${t.gain}:f=${t.frequency}:t=${t.width_type}:w=${t.width}:p=${t.poles}:m=${t.mix}`);
-    }
-    if (fe.bandreject.enabled) {
-      const br = fe.bandreject;
-      filters.push(`bandreject=f=${br.frequency}:t=${br.width_type}:w=${br.width}:m=${br.mix}`);
-    }
-    if (fe.tiltshelf.enabled) {
-      const ts = fe.tiltshelf;
-      filters.push(`tiltshelf=g=${ts.gain}:f=${ts.frequency}:t=${ts.width_type}:w=${ts.width}:p=${ts.poles}:m=${ts.mix}`);
-    }
-    if (fe.allpass.enabled) {
-      const ap = fe.allpass;
-      filters.push(`allpass=f=${ap.frequency}:t=${ap.width_type}:w=${ap.width}:m=${ap.mix}:o=${ap.order}`);
-    }
-    if (fe.asubboost.enabled) {
-      const sb = fe.asubboost;
-      filters.push(`asubboost=dry=${sb.dry}:wet=${sb.wet}:boost=${sb.boost}:decay=${sb.decay}:feedback=${sb.feedback}:cutoff=${sb.cutoff}:slope=${sb.slope}:delay=${sb.delay}`);
-    }
-    if (fe.asubcut.enabled) {
-      const sc = fe.asubcut;
-      filters.push(`asubcut=cutoff=${sc.cutoff}:order=${sc.order}:level=${sc.level}`);
-    }
-    if (fe.asupercut.enabled) {
-      const sp = fe.asupercut;
-      filters.push(`asupercut=cutoff=${sp.cutoff}:order=${sp.order}:level=${sp.level}`);
-    }
-    if (fe.adynamicequalizer.enabled) {
-      const de = fe.adynamicequalizer;
-      filters.push(`adynamicequalizer=threshold=${de.threshold}:dfrequency=${de.dfrequency}:dqfactor=${de.dqfactor}:tfrequency=${de.tfrequency}:tqfactor=${de.tqfactor}:attack=${de.attack}:release=${de.release}:ratio=${de.ratio}:makeup=${de.makeup}:range=${de.range}:mode=${de.mode}:dftype=${de.dftype}:tftype=${de.tftype}`);
-    }
-  }
+  filters.push(
+    ...serializeGroup(
+      schemaGroup(frequencyExtGroup),
+      options.frequency_filter_ext,
+      { input_sample_rate: options.input_sample_rate },
+    ),
+  );
 
   // --- Dynamics Ext ---
   if (options.dynamics_filter_ext) {
