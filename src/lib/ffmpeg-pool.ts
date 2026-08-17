@@ -1,6 +1,7 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { base } from "$app/paths";
 import {
+  SlotUsageTracker,
   resolveBudgetBytes,
   resolveParallelism,
   type RuntimeEnv,
@@ -119,6 +120,8 @@ export function memoryBudgetBytes(): number {
 
 /** プール本体。index 0 は primary（解析にも使う常設インスタンス） */
 const instances: (FFmpegInstance | null)[] = [];
+/** スロットごとの累積処理量（インスタンス作り直しの判断は pool-policy.ts 側） */
+const slotUsage = new SlotUsageTracker();
 
 export function getPrimary(): FFmpegInstance {
   return getSlot(0);
@@ -130,13 +133,28 @@ export function getSlot(slot: number): FFmpegInstance {
   if (existing && !existing.isTerminated) return existing;
   const created = new FFmpegInstance();
   instances[slot] = created;
+  slotUsage.reset(slot);
   return created;
+}
+
+/**
+ * そのスロットで処理した量を記録し、上限を超えたらインスタンスを破棄する。
+ * 破棄後は次の getSlot で新しいインスタンスが作られる。
+ */
+export function noteSlotUsage(slot: number, bytes: number) {
+  if (!slotUsage.add(slot, bytes)) return;
+  if (import.meta.env.DEV) {
+    const mib = Math.round(slotUsage.used(slot) / 1024 / 1024);
+    console.info(`[pool] slot ${slot} を作り直す（累積 ${mib}MiB）`);
+  }
+  discardSlot(slot);
 }
 
 /** 壊れたインスタンスを捨てて次回に作り直させる */
 export function discardSlot(slot: number) {
   instances[slot]?.terminate();
   instances[slot] = null;
+  slotUsage.reset(slot);
 }
 
 /** primary 以外を破棄する。Emscripten のヒープは縮まないのでバッチ後に解放する */
@@ -144,6 +162,7 @@ export function disposeExtras() {
   for (let i = 1; i < instances.length; i++) {
     instances[i]?.terminate();
     instances[i] = null;
+    slotUsage.reset(i);
   }
 }
 
@@ -154,5 +173,6 @@ export async function resetPool(): Promise<void> {
     instances[i] = null;
   }
   instances.length = 0;
+  slotUsage.resetAll();
   await getPrimary().load();
 }

@@ -66,6 +66,40 @@ export function estimateJobBytes(params: {
 }
 
 /**
+ * 1 インスタンスが処理する累積バイト数の上限。
+ * Emscripten のヒープは一度伸びると縮まないため、大きいファイルを続けて処理すると
+ * スロットが高水位のメモリを抱えたままになる。これを超えたら作り直して解放する。
+ * （wasm の再取得は HTTP キャッシュに載るので実コストは再コンパイル分のみ）
+ */
+export const SLOT_RECYCLE_BYTES = 512 * 1024 * 1024;
+
+/** スロットごとの累積処理量を数え、作り直しの必要を判断する */
+export class SlotUsageTracker {
+  private bytes = new Map<number, number>();
+
+  constructor(private readonly limit: number = SLOT_RECYCLE_BYTES) {}
+
+  /** 処理量を加算し、上限に達したら true（呼び出し側がインスタンスを破棄する） */
+  add(slot: number, bytes: number): boolean {
+    const total = (this.bytes.get(slot) ?? 0) + bytes;
+    this.bytes.set(slot, total);
+    return total >= this.limit;
+  }
+
+  used(slot: number): number {
+    return this.bytes.get(slot) ?? 0;
+  }
+
+  reset(slot: number): void {
+    this.bytes.delete(slot);
+  }
+
+  resetAll(): void {
+    this.bytes.clear();
+  }
+}
+
+/**
  * メモリ予算に基づく入場制御。
  * 予算を超える場合は実行中が捌けるまで待つが、実行中が 0 件なら単独実行を許す
  * （1 ファイルも処理できなくなるのを防ぐ。巨大ファイルばかりなら自然に直列へ退化する）

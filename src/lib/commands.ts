@@ -23,6 +23,7 @@ import {
   getSlot,
   maxParallel,
   memoryBudgetBytes,
+  noteSlotUsage,
   resetPool,
 } from "./ffmpeg-pool";
 import { MemoryGate, estimateJobBytes } from "./pool-policy";
@@ -60,7 +61,16 @@ export function resetFFmpeg(): Promise<void> {
   return reset.then(() => undefined);
 }
 
-export function getAudioInfo(file: File): Promise<AudioFileInfo> {
+export async function getAudioInfo(file: File): Promise<AudioFileInfo> {
+  try {
+    return await runProbe(file);
+  } finally {
+    // run() を抜けたあとで判定する（実行中のインスタンスを破棄しないため）
+    notePrimaryUsage(file.size);
+  }
+}
+
+function runProbe(file: File): Promise<AudioFileInfo> {
   // 解析は常に primary で行う。変換中に投入された場合も primary のキューで順番待ちする
   return getPrimary().run(async (ff) => {
     const tempName = "probe_input" + getExtWithDot(file.name);
@@ -92,6 +102,14 @@ export function getAudioInfo(file: File): Promise<AudioFileInfo> {
       }
     }
   });
+}
+
+/**
+ * 解析も primary の wasm ヒープを伸ばすため、累積量で作り直させる。
+ * run() の外側で呼ぶこと（実行中のインスタンスを破棄しないため）。
+ */
+function notePrimaryUsage(bytes: number) {
+  noteSlotUsage(0, bytes);
 }
 
 
@@ -454,6 +472,9 @@ export async function processFiles(
         if (result.instanceBroken) {
           // メモリ確保失敗などでインスタンスが壊れた可能性がある。次の仕事の前に作り直す
           discardSlot(slot);
+        } else {
+          // 累積処理量が閾値を超えたらインスタンスを作り直して wasm ヒープを解放する
+          noteSlotUsage(slot, bytes);
         }
         onResult?.(result, index);
       } catch (e) {

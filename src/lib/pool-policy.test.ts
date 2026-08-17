@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   HARD_MAX_PARALLEL,
   MemoryGate,
+  SLOT_RECYCLE_BYTES,
+  SlotUsageTracker,
   WORKING_SET_BYTES,
   estimateJobBytes,
   resolveBudgetBytes,
@@ -117,6 +119,58 @@ describe("estimateJobBytes", () => {
       usesIntermediate: false,
     });
     expect(bytes).toBe(1 * MIB + 48000 * 2 * 4 + WORKING_SET_BYTES);
+  });
+});
+
+describe("SlotUsageTracker", () => {
+  it("上限に達するまでは作り直しを求めない", () => {
+    const t = new SlotUsageTracker(1000);
+    expect(t.add(0, 400)).toBe(false);
+    expect(t.add(0, 400)).toBe(false);
+    expect(t.used(0)).toBe(800);
+  });
+
+  it("累積が上限に達したら true を返す", () => {
+    const t = new SlotUsageTracker(1000);
+    t.add(0, 600);
+    expect(t.add(0, 400)).toBe(true);
+  });
+
+  it("スロットごとに独立して数える", () => {
+    const t = new SlotUsageTracker(1000);
+    expect(t.add(0, 900)).toBe(false);
+    expect(t.add(1, 900)).toBe(false);
+    expect(t.used(0)).toBe(900);
+    expect(t.used(1)).toBe(900);
+  });
+
+  it("1 回で上限を超える巨大ファイルでも作り直しを求める", () => {
+    const t = new SlotUsageTracker(1000);
+    expect(t.add(0, 5000)).toBe(true);
+  });
+
+  it("reset したスロットは 0 から数え直す", () => {
+    const t = new SlotUsageTracker(1000);
+    t.add(0, 900);
+    t.reset(0);
+    expect(t.used(0)).toBe(0);
+    expect(t.add(0, 900)).toBe(false);
+  });
+
+  it("resetAll で全スロットが 0 に戻る", () => {
+    const t = new SlotUsageTracker(1000);
+    t.add(0, 900);
+    t.add(1, 900);
+    t.resetAll();
+    expect(t.used(0)).toBe(0);
+    expect(t.used(1)).toBe(0);
+  });
+
+  it("既定の上限は 512MiB", () => {
+    expect(SLOT_RECYCLE_BYTES).toBe(512 * MIB);
+    const t = new SlotUsageTracker();
+    expect(t.add(0, 511 * MIB)).toBe(false);
+    expect(t.add(0, 1 * MIB)).toBe(true);
   });
 });
 
