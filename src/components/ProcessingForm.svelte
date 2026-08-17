@@ -82,50 +82,44 @@
         </button>
       {/each}
     </div>
-    <div class="tab-content" class:hidden={activeTab !== "basic"}>
-      <div class="settings-grid">
-        <div class="settings-col">
-          <FormatSettings />
-          <SampleRateSettings />
-          <SilenceRemoveSettings />
-          <NoiseReduceSettings />
-        </div>
-        <div class="settings-col">
-          <BitrateSettings />
-          <VolumeSettings />
-        </div>
-      </div>
+    <div class="tab-content basic" class:hidden={activeTab !== "basic"}>
+      <div class="basic-card"><FormatSettings /></div>
+      <div class="basic-card"><SampleRateSettings /></div>
+      <div class="basic-card"><BitrateSettings /></div>
+      <div class="basic-card"><VolumeSettings /></div>
+      <div class="basic-card"><SilenceRemoveSettings /></div>
+      <div class="basic-card"><NoiseReduceSettings /></div>
     </div>
     {#if visited.has("frequency")}
-      <div class="tab-content" class:hidden={activeTab !== "frequency"}>
+      <div class="tab-content filters" class:hidden={activeTab !== "frequency"}>
         <FrequencySettings />
         <FrequencySettingsExt />
       </div>
     {/if}
     {#if visited.has("dynamics")}
-      <div class="tab-content" class:hidden={activeTab !== "dynamics"}>
+      <div class="tab-content filters" class:hidden={activeTab !== "dynamics"}>
         <DynamicsSettings />
         <DynamicsSettingsExt />
       </div>
     {/if}
     {#if visited.has("effects")}
-      <div class="tab-content" class:hidden={activeTab !== "effects"}>
+      <div class="tab-content filters" class:hidden={activeTab !== "effects"}>
         <EffectSettings />
         <EffectSettingsExt />
       </div>
     {/if}
     {#if visited.has("channel")}
-      <div class="tab-content" class:hidden={activeTab !== "channel"}>
+      <div class="tab-content filters" class:hidden={activeTab !== "channel"}>
         <ChannelSettings />
       </div>
     {/if}
     {#if visited.has("repair")}
-      <div class="tab-content" class:hidden={activeTab !== "repair"}>
+      <div class="tab-content filters" class:hidden={activeTab !== "repair"}>
         <RepairSettings />
       </div>
     {/if}
     {#if visited.has("stereo")}
-      <div class="tab-content" class:hidden={activeTab !== "stereo"}>
+      <div class="tab-content filters" class:hidden={activeTab !== "stereo"}>
         <StereoSettings />
       </div>
     {/if}
@@ -198,17 +192,30 @@
   .tab-content {
     padding: 16px 0 0;
   }
+  /* フィルタ系タブは項目数が多いので、画面幅に応じて 2〜4 列へ折り返す。
+     基本機能タブとメタ編集タブは独自レイアウトなので対象外。 */
+  .tab-content.filters {
+    /* grid だと行の高さが最も高い項目に揃って縦の隙間が空くため、
+       段組み (multi-column) で上から詰めて流す。列数は幅から自動決定。 */
+    columns: 330px;
+    column-gap: 20px;
+  }
+  /* display:none は grid 指定より後に置いて確実に勝たせる */
   .tab-content.hidden {
     display: none;
   }
-  .settings-grid {
-    display: flex;
-    gap: 16px;
+  /* 基本機能タブもフィルタ系タブと同じ段組みに揃える
+     （2 列固定だと広い画面で 1 列 800px 超になり間延びする） */
+  .tab-content.basic {
+    columns: 340px;
+    column-gap: 20px;
   }
-  .settings-col {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+  .basic-card {
+    break-inside: avoid;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid #2b2b24;
+    border-radius: 6px;
+    background: #17170f;
   }
 </style>

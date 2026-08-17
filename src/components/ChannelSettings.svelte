@@ -85,15 +85,23 @@
 </div>
 
 <style>
+  /* 親 (.tab-content.filters) のグリッドへ各項目を直接並べるため箱を消す。
+     カスタムプロパティは display:contents でも子に継承される。 */
   .channel-settings {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+    display: contents;
   }
+  /* フィルタ系タブのカード（FilterGroup）と見た目を揃える */
   .setting-group {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid #2b2b24;
+    border-radius: 6px;
+    /* 段組みの途中で項目が分断されないようにする */
+    break-inside: avoid;
+    margin-bottom: 12px;
+    background: #17170f;
     transition: opacity 0.15s;
   }
   .setting-group.disabled {

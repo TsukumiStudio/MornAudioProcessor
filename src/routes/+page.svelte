@@ -331,7 +331,7 @@
   }
 
   .app {
-    max-width: 1300px;
+    max-width: 1720px;
     margin: 0 auto;
     padding: 24px;
     display: flex;
