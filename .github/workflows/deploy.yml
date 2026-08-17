@@ -6,6 +6,8 @@ on:
   # main へのプルリクエストでも検証だけ走らせる（デプロイはしない）
   pull_request:
     branches: [main]
+  # push イベントが取りこぼされたときに手動でデプロイし直せるようにする
+  workflow_dispatch:
 
 permissions:
   contents: read
