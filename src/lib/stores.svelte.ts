@@ -297,6 +297,11 @@ export function getAppState() {
     addFile(entry: FileEntry) {
       files = [...files, entry];
     },
+    /** 複数まとめて追加する（大量投入時に配列の作り直しを 1 回で済ませる） */
+    addFiles(entries: FileEntry[]) {
+      if (entries.length === 0) return;
+      files = [...files, ...entries];
+    },
     /** 対象エントリが存在して更新できた場合に true を返す */
     updateFile(id: string, updates: Partial<FileEntry>): boolean {
       const entry = files.find((f) => f.id === id);

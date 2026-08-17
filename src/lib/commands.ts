@@ -33,6 +33,8 @@ import {
 } from "./pool-policy";
 
 let readyPromise: Promise<FfmpegInfo> | null = null;
+/** 変換バッチの実行中か（解析側が並列度を落とす判断に使う） */
+let batchRunning = false;
 
 export function initFFmpeg(
   onProgress?: (message: string) => void,
@@ -65,12 +67,67 @@ export function resetFFmpeg(): Promise<void> {
   return reset.then(() => undefined);
 }
 
+/** 単一ファイルを解析する（primary 固定）。複数件は analyzeFiles を使う */
 export async function getAudioInfo(file: File): Promise<AudioFileInfo> {
   try {
-    return await probeWithRecovery(file);
+    return await probeWithRecovery(file, 0);
   } finally {
     // run() を抜けたあとで判定する（実行中のインスタンスを破棄しないため）
-    notePrimaryUsage(file.size);
+    noteSlotUsage(0, file.size);
+  }
+}
+
+/**
+ * 複数ファイルをプールで並列に解析する。
+ *
+ * 変換バッチが走っている間は並列度 1（primary 固定）に落とす。解析と変換で
+ * メモリ予算を取り合わないようにするためで、従来と同じ挙動になる。
+ * 結果は完了順に onResult へ渡す（投入順とは一致しない）。
+ */
+export async function analyzeFiles(
+  files: File[],
+  onResult: (file: File, info: AudioFileInfo | null, error?: unknown) => void,
+): Promise<void> {
+  if (files.length === 0) return;
+
+  const slots = batchRunning ? 1 : Math.min(maxParallel(), files.length);
+  const gate = new MemoryGate(memoryBudgetBytes());
+  let nextIndex = 0;
+
+  if (import.meta.env.DEV) {
+    console.info(`[pool] 解析の並列度=${slots}（${files.length} 件）`);
+  }
+
+  const worker = async (slot: number) => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= files.length) return;
+      const file = files[index];
+
+      // 解析は中間ファイルを作らないので見積りは 1 コピー分
+      const bytes = estimateJobBytes({
+        inputSize: file.size,
+        durationMs: null,
+        sampleRate: null,
+        channels: null,
+        usesIntermediate: false,
+      });
+      await gate.admit(bytes);
+      try {
+        onResult(file, await probeWithRecovery(file, slot));
+      } catch (e) {
+        onResult(file, null, e);
+      } finally {
+        noteSlotUsage(slot, file.size);
+        gate.release(bytes);
+      }
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: slots }, (_, slot) => worker(slot)));
+  } finally {
+    if (!batchRunning) disposeExtras();
   }
 }
 
@@ -79,9 +136,12 @@ export async function getAudioInfo(file: File): Promise<AudioFileInfo> {
  * 作り直して 1 回だけやり直す。これが無いと 1 件の失敗（メモリ不足など）で
  * 残り全ファイルが同じエラーを出し続ける。
  */
-async function probeWithRecovery(file: File): Promise<AudioFileInfo> {
+async function probeWithRecovery(
+  file: File,
+  slot: number,
+): Promise<AudioFileInfo> {
   try {
-    return await runProbe(file);
+    return await runProbe(file, slot);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (!isFatalInstanceError(message)) throw e;
@@ -90,14 +150,14 @@ async function probeWithRecovery(file: File): Promise<AudioFileInfo> {
       `FFmpeg インスタンスが壊れたため作り直して再試行します: ${file.name}`,
       e,
     );
-    discardSlot(0);
-    return runProbe(file);
+    discardSlot(slot);
+    return runProbe(file, slot);
   }
 }
 
-function runProbe(file: File): Promise<AudioFileInfo> {
-  // 解析は常に primary で行う。変換中に投入された場合も primary のキューで順番待ちする
-  return getPrimary().run(async (ff) => {
+function runProbe(file: File, slot: number): Promise<AudioFileInfo> {
+  // インスタンス内は直列。変換中に投入された場合もそのキューで順番待ちする
+  return getSlot(slot).run(async (ff) => {
     const tempName = "probe_input" + getExtWithDot(file.name);
     const artOut = "probe_art_extract.jpg";
     // アート抽出を試みたか（試していないファイルを削除しようとしないため）
@@ -144,15 +204,6 @@ function runProbe(file: File): Promise<AudioFileInfo> {
     }
   });
 }
-
-/**
- * 解析も primary の wasm ヒープを伸ばすため、累積量で作り直させる。
- * run() の外側で呼ぶこと（実行中のインスタンスを破棄しないため）。
- */
-function notePrimaryUsage(bytes: number) {
-  noteSlotUsage(0, bytes);
-}
-
 
 async function detectVolume(
   ff: FFmpeg,
@@ -487,6 +538,8 @@ export async function processFiles(
 ): Promise<void> {
   if (jobs.length === 0) return;
 
+  // 変換中は解析側の並列度を 1 に落とさせる（メモリ予算を取り合わないため）
+  batchRunning = true;
   const budget = memoryBudgetBytes();
   const slots = Math.min(maxParallel(), jobs.length);
 
@@ -562,6 +615,7 @@ export async function processFiles(
   try {
     await Promise.all(Array.from({ length: slots }, (_, slot) => worker(slot)));
   } finally {
+    batchRunning = false;
     // Emscripten のヒープは縮まないので、バッチ後に primary 以外を解放する
     disposeExtras();
   }

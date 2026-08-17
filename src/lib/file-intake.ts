@@ -1,6 +1,6 @@
-import { getAudioInfo } from "./commands";
+import { analyzeFiles } from "./commands";
 import { getAppState } from "./stores.svelte";
-import type { AudioFileInfo } from "./types";
+import type { AudioFileInfo, FileEntry } from "./types";
 
 export const SUPPORTED_EXTENSIONS = [".mp3", ".wav", ".ogg", ".flac"];
 
@@ -29,11 +29,16 @@ export function isSupportedFile(name: string): boolean {
 
 /**
  * ドラッグ&ドロップとファイル選択の共通取り込み処理。
- * まずプレースホルダを登録して即座にリストへ出し、その後 1 件ずつ解析して差し替える。
- * getAudioInfo 側でコア読み込み完了を待つため、初期ロード中に投入されても受け付けられる。
+ *
+ * 先に全ファイルのプレースホルダをまとめて登録してリストへ出し、そのあとで
+ * プールを使って並列に解析する（大量投入時の待ち時間を短くするため）。
+ * コア読み込み完了は解析側で待つので、初期ロード中に投入されても受け付けられる。
  */
 export async function ingestFiles(fileList: FileList | File[]): Promise<void> {
   const appState = getAppState();
+
+  const targets: { id: string; file: File }[] = [];
+  const newEntries: FileEntry[] = [];
 
   for (const file of Array.from(fileList)) {
     if (!isSupportedFile(file.name)) continue;
@@ -44,7 +49,7 @@ export async function ingestFiles(fileList: FileList | File[]): Promise<void> {
     if (existing) {
       appState.updateFile(entryId, { status: "loading", progress: 0 });
     } else {
-      appState.addFile({
+      newEntries.push({
         id: entryId,
         file: makePlaceholderInfo(file.name),
         sourceFile: file,
@@ -52,9 +57,27 @@ export async function ingestFiles(fileList: FileList | File[]): Promise<void> {
         progress: 0,
       });
     }
+    targets.push({ id: entryId, file });
+  }
 
-    try {
-      const info = await getAudioInfo(file);
+  // 1 件ずつ追加すると配列の作り直しが件数分走るため、まとめて登録する
+  appState.addFiles(newEntries);
+  if (targets.length === 0) return;
+
+  const idByFile = new Map(targets.map((t) => [t.file, t.id]));
+
+  await analyzeFiles(
+    targets.map((t) => t.file),
+    (file, info, error) => {
+      const entryId = idByFile.get(file);
+      if (!entryId) return;
+
+      if (!info) {
+        console.error(`ファイル情報取得失敗: ${file.name}`, error);
+        appState.updateFile(entryId, { status: "error", error: String(error) });
+        return;
+      }
+
       // 解析中に処理が始まっていた場合、status を pending に巻き戻さない
       const current = appState.getFileStatus(entryId);
       const keepStatus = current === "processing" || current === "completed";
@@ -68,9 +91,6 @@ export async function ingestFiles(fileList: FileList | File[]): Promise<void> {
       if (!applied && info.albumArtUrl) {
         URL.revokeObjectURL(info.albumArtUrl);
       }
-    } catch (e) {
-      console.error(`ファイル情報取得失敗: ${file.name}`, e);
-      appState.updateFile(entryId, { status: "error", error: String(e) });
-    }
-  }
+    },
+  );
 }

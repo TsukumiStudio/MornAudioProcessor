@@ -3,6 +3,9 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  # main へのプルリクエストでも検証だけ走らせる（デプロイはしない）
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -20,15 +23,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
+      # ffmpeg のコマンド組み立ての同一性やプールの判定ロジックを検証する
+      - run: npm test
+      - run: npm run check
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name == 'push'
         with:
           path: build
 
   deploy:
+    # 検証が通った push のときだけデプロイする
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     environment:
