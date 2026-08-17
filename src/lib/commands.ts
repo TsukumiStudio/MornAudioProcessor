@@ -32,6 +32,8 @@ import {
   estimateJobBytes,
   isFatalInstanceError,
 } from "./pool-policy";
+import { decodeAudioFile } from "./audio-decode";
+import { analyzeLufs, analyzePeakRms } from "./loudness";
 
 let readyPromise: Promise<FfmpegInfo> | null = null;
 /** 変換バッチの実行中か（解析側が並列度を落とす判断に使う） */
@@ -173,7 +175,56 @@ async function probeWithRecovery(
   }
 }
 
-function runProbe(file: File, slot: number): Promise<AudioFileInfo> {
+/**
+ * 1 ファイルを解析する。
+ *
+ * ffmpeg にはヘッダとメタデータの読み取り（とアルバムアート抽出）だけを任せ、
+ * peak/RMS/LUFS はブラウザのネイティブデコード + JS 計測で求める。
+ * ネイティブデコードに失敗した場合だけ ffmpeg でフルデコード計測にフォールバックする。
+ */
+async function runProbe(file: File, slot: number): Promise<AudioFileInfo> {
+  const header = await probeWithFFmpeg(file, slot, false);
+  const measured = await measureWithNativeDecode(header, file);
+  if (measured) return measured;
+
+  // 非対応コーデックなど。従来どおり ffmpeg でフルデコード計測にフォールバックする
+  if (import.meta.env.DEV) {
+    console.info(`[probe] ネイティブデコード不可のため ffmpeg で計測: ${file.name}`);
+  }
+  return probeWithFFmpeg(file, slot, true);
+}
+
+/**
+ * ヘッダ情報にネイティブデコードで求めた peak/RMS/LUFS を載せて返す。
+ * デコードできなければ null（呼び出し側が ffmpeg 計測にフォールバックする）。
+ */
+async function measureWithNativeDecode(
+  header: AudioFileInfo,
+  source: Blob,
+): Promise<AudioFileInfo | null> {
+  // ヘッダから読めたサンプルレートを渡してリサンプルを避ける
+  const hintedRate = header.sample_rate ? parseInt(header.sample_rate, 10) : null;
+  const decoded = await decodeAudioFile(source, hintedRate);
+  if (!decoded) return null;
+
+  const { peakDb, rmsDb } = analyzePeakRms(decoded.channels);
+  const lufs = analyzeLufs(decoded.channels, decoded.sampleRate);
+
+  return {
+    ...header,
+    // 長さはデコード結果の方が正確（mp3 のヘッダはパディング分だけ長く出る）
+    duration_ms: decoded.durationMs || header.duration_ms,
+    peak_db: Math.round(peakDb * 10) / 10,
+    rms_db: Math.round(rmsDb * 10) / 10,
+    lufs: lufs !== null ? Math.round(lufs * 10) / 10 : null,
+  };
+}
+
+function probeWithFFmpeg(
+  file: File,
+  slot: number,
+  measure: boolean,
+): Promise<AudioFileInfo> {
   // インスタンス内は直列。変換中に投入された場合もそのキューで順番待ちする
   return getSlot(slot).run(async (ff) => {
     const tempName = "probe_input" + getExtWithDot(file.name);
@@ -187,6 +238,7 @@ function runProbe(file: File, slot: number): Promise<AudioFileInfo> {
         ff,
         tempName,
         file.size,
+        measure,
       );
 
       // アルバムアートは映像ストリームがある場合だけ抽出する。
@@ -293,10 +345,17 @@ async function detectLufs(
 /** プローブ結果。hasVideoStream は埋め込みアルバムアートの有無判定に使う */
 type ProbeResult = AudioFileInfo & { hasVideoStream: boolean };
 
+/**
+ * ffmpeg でファイル情報を読む。
+ * measure=false のときはデコードせずヘッダとメタデータだけを読む（既定）。
+ * peak/RMS/LUFS はブラウザのネイティブデコード + JS 計測に任せるほうが桁違いに速い。
+ * measure=true は JS 側でデコードできなかった場合のフォールバック。
+ */
 async function probeAudioInfo(
   ff: FFmpeg,
   fileName: string,
   blobSize: number,
+  measure = false,
 ): Promise<ProbeResult> {
   let durationMs = 0;
   let hasVideoStream = false;
@@ -400,19 +459,26 @@ async function probeAudioInfo(
     if (iMatch) lufsValue = parseFloat(iMatch[1]);
   };
 
-  // peak/RMS と LUFS を 1 パスで計測する。
-  // volumedetect を loudnorm より前に置くことで、loudnorm の利得適用前の値を測る。
   ff.on("log", logHandler);
   try {
-    // exec は失敗しても reject せず非 0 を返すだけなので、コードで分岐する
-    const code = await ff.exec([
-      "-i", fileName,
-      "-af", "volumedetect,loudnorm=print_format=json",
-      "-f", "null", "-",
-    ]);
-    if (code !== 0) {
-      // loudnorm を連結できない入力向けフォールバック: volumedetect のみで再計測
-      await ff.exec(["-i", fileName, "-af", "volumedetect", "-f", "null", "-"]);
+    if (measure) {
+      // peak/RMS と LUFS を 1 パスで計測する。
+      // volumedetect を loudnorm より前に置くことで、loudnorm の利得適用前の値を測る。
+      // exec は失敗しても reject せず非 0 を返すだけなので、コードで分岐する。
+      const code = await ff.exec([
+        "-i", fileName,
+        "-af", "volumedetect,loudnorm=print_format=json",
+        "-f", "null", "-",
+      ]);
+      if (code !== 0) {
+        // loudnorm を連結できない入力向けフォールバック: volumedetect のみで再計測
+        await ff.exec(["-i", fileName, "-af", "volumedetect", "-f", "null", "-"]);
+      }
+    } else {
+      // ヘッダとメタデータだけ読む。出力を指定しないので ffmpeg はデコードせずに
+      // 「At least one output file must be specified」で終わる（非 0 だが期待どおり）。
+      // 実測: 3 分ステレオでフルデコード計測 4195ms に対し 38ms
+      await ff.exec(["-i", fileName]);
     }
   } catch {
     // 表示用の情報なので、計測できなくても処理は続行する
@@ -831,8 +897,14 @@ async function runProcessFile(
     // プローブの exec 進捗を対象ファイルの進捗として誤表示しないよう、先に解除する
     ff.off("progress", progressHandler);
 
-    // 出力ファイルのプローブ（クリーンアップ前）
-    const outputInfo = await probeAudioInfo(ff, outputName, blob.size);
+    // 出力ファイルのプローブ（クリーンアップ前）。
+    // 入力側と同じく、ヘッダは ffmpeg・計測はネイティブデコードで行う。
+    const outputHeader = await probeAudioInfo(ff, outputName, blob.size, false);
+    let outputInfo = await measureWithNativeDecode(outputHeader, blob);
+    if (!outputInfo) {
+      // デコードできない形式は ffmpeg で計測し直す（VFS の削除前に行う）
+      outputInfo = await probeAudioInfo(ff, outputName, blob.size, true);
+    }
 
     onProgress?.({
       file_name: options.input_file.name,
