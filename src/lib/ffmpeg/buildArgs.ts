@@ -1,5 +1,8 @@
 import type { ProcessingOptions } from "../types";
 import { dynamicsGroup } from "../schema/dynamics";
+import { dynamicsExtGroup } from "../schema/dynamicsExt";
+import { effectGroup } from "../schema/effect";
+import { effectExtGroup } from "../schema/effectExt";
 import { frequencyGroup } from "../schema/frequency";
 import { frequencyExtGroup } from "../schema/frequencyExt";
 import { repairGroup } from "../schema/repair";
@@ -76,44 +79,11 @@ export function buildFFmpegArgs(options: ProcessingOptions): string[] {
     }),
   );
 
-  if (options.effect_filter) {
-    const ef = options.effect_filter;
-    if (ef.echo.enabled) {
-      const e = ef.echo;
-      filters.push(`aecho=${e.in_gain}:${e.out_gain}:${e.delays}:${e.decays}`);
-    }
-    if (ef.chorus.enabled) {
-      const ch = ef.chorus;
-      filters.push(`chorus=${ch.in_gain}:${ch.out_gain}:${ch.delays}:${ch.decays}:${ch.speeds}:${ch.depths}`);
-    }
-    if (ef.flanger.enabled) {
-      const fl = ef.flanger;
-      filters.push(`flanger=delay=${fl.delay}:depth=${fl.depth}:regen=${fl.regen}:width=${fl.width}:speed=${fl.speed}:shape=${fl.shape}:phase=${fl.phase}:interp=${fl.interp}`);
-    }
-    if (ef.phaser.enabled) {
-      const ph = ef.phaser;
-      filters.push(`aphaser=in_gain=${ph.in_gain}:out_gain=${ph.out_gain}:delay=${ph.delay}:decay=${ph.decay}:speed=${ph.speed}:type=${ph.type}`);
-    }
-    if (ef.tremolo.enabled) {
-      const tr = ef.tremolo;
-      filters.push(`tremolo=f=${tr.f}:d=${tr.d}`);
-    }
-    if (ef.vibrato.enabled) {
-      const vb = ef.vibrato;
-      filters.push(`vibrato=f=${vb.f}:d=${vb.d}`);
-    }
-    if (ef.tempo.enabled) {
-      const tp = ef.tempo;
-      filters.push(`atempo=${tp.tempo}`);
-    }
-    if (ef.pitch.enabled && ef.pitch.semitones !== 0 && options.input_sample_rate) {
-      const ratio = Math.pow(2, ef.pitch.semitones / 12);
-      const origRate = options.input_sample_rate;
-      const newRate = Math.round(origRate * ratio);
-      const tempoCompensation = 1 / ratio;
-      filters.push(`asetrate=${newRate}`, `atempo=${tempoCompensation}`, `aresample=${origRate}`);
-    }
-  }
+  filters.push(
+    ...serializeGroup(schemaGroup(effectGroup), options.effect_filter, {
+      input_sample_rate: options.input_sample_rate,
+    }),
+  );
 
   filters.push(
     ...serializeGroup(
@@ -124,85 +94,18 @@ export function buildFFmpegArgs(options: ProcessingOptions): string[] {
   );
 
   // --- Dynamics Ext ---
-  if (options.dynamics_filter_ext) {
-    const de = options.dynamics_filter_ext;
-    if (de.dynaudnorm.enabled) {
-      const d = de.dynaudnorm;
-      filters.push(`dynaudnorm=framelen=${d.framelen}:gausssize=${d.gausssize}:peak=${d.peak}:maxgain=${d.maxgain}:targetrms=${d.targetrms}:coupling=${d.coupling ? 1 : 0}:correctdc=${d.correctdc ? 1 : 0}:altboundary=${d.altboundary ? 1 : 0}:compress=${d.compress}:threshold=${d.threshold}:overlap=${d.overlap}`);
-    }
-    if (de.speechnorm.enabled) {
-      const s = de.speechnorm;
-      filters.push(`speechnorm=peak=${s.peak}:expansion=${s.expansion}:compression=${s.compression}:threshold=${s.threshold}:raise=${s.raise}:fall=${s.fall}:invert=${s.invert ? 1 : 0}:link=${s.link ? 1 : 0}:rms=${s.rms}`);
-    }
-    if (de.compand.enabled) {
-      const c = de.compand;
-      filters.push(`compand=attacks=${c.attacks}:decays=${c.decays}:points=${c.points}:soft-knee=${c.soft_knee}:gain=${c.gain}:volume=${c.volume}:delay=${c.delay}`);
-    }
-    if (de.asoftclip.enabled) {
-      const a = de.asoftclip;
-      filters.push(`asoftclip=type=${a.type}:threshold=${a.threshold}:output=${a.output}:param=${a.param}:oversample=${a.oversample}`);
-    }
-    if (de.apsyclip.enabled) {
-      const a = de.apsyclip;
-      filters.push(`apsyclip=level_in=${a.level_in}:level_out=${a.level_out}:clip=${a.clip}:diff=${a.diff ? 1 : 0}:adaptive=${a.adaptive}:iterations=${a.iterations}:level=${a.level ? 1 : 0}`);
-    }
-  }
+  filters.push(
+    ...serializeGroup(schemaGroup(dynamicsExtGroup), options.dynamics_filter_ext, {
+      input_sample_rate: options.input_sample_rate,
+    }),
+  );
 
   // --- Effect Ext ---
-  if (options.effect_filter_ext) {
-    const ee = options.effect_filter_ext;
-    if (ee.afade_in.enabled) {
-      const a = ee.afade_in;
-      filters.push(`afade=t=in:st=${a.start_time}:d=${a.duration}:curve=${a.curve}:silence=${a.silence}:unity=${a.unity}`);
-    }
-    if (ee.afade_out.enabled) {
-      const a = ee.afade_out;
-      filters.push(`afade=t=out:st=${a.start_time}:d=${a.duration}:curve=${a.curve}:silence=${a.silence}:unity=${a.unity}`);
-    }
-    if (ee.acrusher.enabled) {
-      const a = ee.acrusher;
-      filters.push(`acrusher=level_in=${a.level_in}:level_out=${a.level_out}:bits=${a.bits}:mix=${a.mix}:mode=${a.mode}:dc=${a.dc}:aa=${a.aa}:samples=${a.samples}:lfo=${a.lfo ? 1 : 0}:lforange=${a.lforange}:lforate=${a.lforate}`);
-    }
-    if (ee.aexciter.enabled) {
-      const a = ee.aexciter;
-      filters.push(`aexciter=level_in=${a.level_in}:level_out=${a.level_out}:amount=${a.amount}:drive=${a.drive}:blend=${a.blend}:freq=${a.freq}:ceil=${a.ceil}:listen=${a.listen ? 1 : 0}`);
-    }
-    if (ee.crystalizer.enabled) {
-      const c = ee.crystalizer;
-      filters.push(`crystalizer=i=${c.i}:c=${c.c ? 1 : 0}`);
-    }
-    if (ee.areverse.enabled) {
-      filters.push("areverse");
-    }
-    if (ee.aloop.enabled) {
-      const a = ee.aloop;
-      filters.push(`aloop=loop=${a.loop}:size=${a.size}:start=${a.start}`);
-    }
-    if (ee.afreqshift.enabled) {
-      const a = ee.afreqshift;
-      filters.push(`afreqshift=shift=${a.shift}:level=${a.level}:order=${a.order}`);
-    }
-    if (ee.apulsator.enabled) {
-      const a = ee.apulsator;
-      filters.push(`apulsator=level_in=${a.level_in}:level_out=${a.level_out}:mode=${a.mode}:amount=${a.amount}:offset_l=${a.offset_l}:offset_r=${a.offset_r}:width=${a.width}:timing=${a.timing}:bpm=${a.bpm}:ms=${a.ms}:hz=${a.hz}`);
-    }
-    if (ee.adelay.enabled) {
-      const a = ee.adelay;
-      filters.push(`adelay=${a.delays}:all=${a.all ? 1 : 0}`);
-    }
-    if (ee.compensationdelay.enabled) {
-      const c = ee.compensationdelay;
-      filters.push(`compensationdelay=mm=${c.mm}:cm=${c.cm}:m=${c.m}:dry=${c.dry}:wet=${c.wet}:temp=${c.temp}`);
-    }
-    if (ee.dcshift.enabled) {
-      const d = ee.dcshift;
-      filters.push(`dcshift=shift=${d.shift}:limitergain=${d.limitergain}`);
-    }
-    if (ee.apad.enabled) {
-      const a = ee.apad;
-      filters.push(`apad=pad_dur=${a.pad_dur}:whole_dur=${a.whole_dur}`);
-    }
-  }
+  filters.push(
+    ...serializeGroup(schemaGroup(effectExtGroup), options.effect_filter_ext, {
+      input_sample_rate: options.input_sample_rate,
+    }),
+  );
 
   // --- Repair ---
   filters.push(
