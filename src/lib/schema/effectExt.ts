@@ -13,20 +13,9 @@ import type {
   DcshiftOption,
   EffectFilterExtOption,
 } from "../types";
-import type { FilterDef, SelectControl, SerArg } from "./types";
-import { fixed, fixedWith, k, kb, lit, pos, withUnit } from "./helpers";
+import type { FilterDef } from "./types";
+import { fixed, fixedWith, k, kb, lit, plainSelect, pos, withUnit } from "./helpers";
 
-/** 値そのままをラベルにする select（curve / mode / timing） */
-function plainSelect<V extends string>(
-  def: V,
-  values: readonly V[],
-): SelectControl<V> {
-  return {
-    control: "select",
-    default: def,
-    options: values.map((value) => ({ value, label: value })),
-  };
-}
 
 const AFADE_CURVES = [
   "tri",
@@ -71,8 +60,7 @@ function afadeDef(dir: "in" | "out", label: string) {
     serialize: {
       name: "afade",
       args: [
-        // lit() の戻りは SerArg<never> なので、混在配列の要素型に合わせる
-        lit(`t=${dir}`) as SerArg<AfadeOption>,
+        lit<AfadeOption>(`t=${dir}`),
         k<AfadeOption>("st", "start_time"),
         k<AfadeOption>("d", "duration"),
         k<AfadeOption>("curve", "curve"),

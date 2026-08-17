@@ -9,20 +9,9 @@ import type {
   TremoloOption,
   VibratoOption,
 } from "../types";
-import type { FilterDef, SelectControl } from "./types";
-import { fixed, fixedWith, k, pos, withUnit } from "./helpers";
+import type { FilterDef } from "./types";
+import { fixed, fixedWith, k, plainSelect, pos, withUnit } from "./helpers";
 
-/** 値そのままをラベルにする select（shape / interp / type） */
-function plainSelect<V extends string>(
-  def: V,
-  values: readonly V[],
-): SelectControl<V> {
-  return {
-    control: "select",
-    default: def,
-    options: values.map((value) => ({ value, label: value })),
-  };
-}
 
 /** {v > 0 ? "+" : ""}{v} */
 const signed = (v: number) => `${v > 0 ? "+" : ""}${v}`;

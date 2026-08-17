@@ -4,20 +4,9 @@ import type {
   GateOption,
   LimiterOption,
 } from "../types";
-import type { FilterDef, SelectControl } from "./types";
-import { fixed, k, kb, withUnit } from "./helpers";
+import type { FilterDef } from "./types";
+import { fixed, k, kb, plainSelect, withUnit } from "./helpers";
 
-/** 値そのままをラベルにする select（mode / detection / link） */
-function plainSelect<V extends string>(
-  def: V,
-  values: readonly V[],
-): SelectControl<V> {
-  return {
-    control: "select",
-    default: def,
-    options: values.map((value) => ({ value, label: value })),
-  };
-}
 
 const modeSelect = () =>
   plainSelect<"downward" | "upward">("downward", ["downward", "upward"]);

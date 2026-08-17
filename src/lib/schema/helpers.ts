@@ -31,7 +31,7 @@ export function pos<TOpt>(
 }
 
 /** 固定リテラル（afade の t=in など） */
-export function lit(value: string): SerArg<never> {
+export function lit<TOpt>(value: string): SerArg<TOpt> {
   return { lit: value };
 }
 
@@ -65,6 +65,18 @@ export function widthTypeSelect(def: WidthType): SelectControl<WidthType> {
       value,
       label: WIDTH_TYPE_LABELS[value],
     })),
+  };
+}
+
+/** 値そのままをラベルにする select（mode / type などラベル変換が不要なもの） */
+export function plainSelect<V extends string>(
+  def: V,
+  values: readonly V[],
+): SelectControl<V> {
+  return {
+    control: "select",
+    default: def,
+    options: values.map((value) => ({ value, label: value })),
   };
 }
 

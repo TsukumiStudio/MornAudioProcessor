@@ -6,20 +6,9 @@ import type {
   DynaudnormOption,
   SpeechnormOption,
 } from "../types";
-import type { FilterDef, SelectControl } from "./types";
-import { fixed, fixedWith, k, kb, signedDb } from "./helpers";
+import type { FilterDef } from "./types";
+import { fixed, fixedWith, k, kb, plainSelect, signedDb } from "./helpers";
 
-/** 値そのままをラベルにする select（asoftclip の type） */
-function plainSelect<V extends string>(
-  def: V,
-  values: readonly V[],
-): SelectControl<V> {
-  return {
-    control: "select",
-    default: def,
-    options: values.map((value) => ({ value, label: value })),
-  };
-}
 
 const dynaudnorm = {
   label: "ダイナミック正規化",

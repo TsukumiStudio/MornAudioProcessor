@@ -9,8 +9,8 @@ import type {
   StereotoolsOption,
   StereowidenOption,
 } from "../types";
-import type { FilterDef, SelectControl } from "./types";
-import { fixed, fixedWith, k, kb, withUnit } from "./helpers";
+import type { FilterDef } from "./types";
+import { fixed, fixedWith, k, kb, plainSelect, withUnit } from "./helpers";
 
 const STEREO_MODES: readonly StereoMode[] = [
   "lr>lr",
@@ -28,17 +28,6 @@ const STEREO_MODES: readonly StereoMode[] = [
 
 const BALANCE_MODES: readonly BalanceMode[] = ["balance", "amplitude", "power"];
 
-/** 値そのままをラベルにする select（mode / bmode / middle_source） */
-function plainSelect<V extends string>(
-  def: V,
-  values: readonly V[],
-): SelectControl<V> {
-  return {
-    control: "select",
-    default: def,
-    options: values.map((value) => ({ value, label: value })),
-  };
-}
 
 const stereotools = {
   label: "ステレオツール",

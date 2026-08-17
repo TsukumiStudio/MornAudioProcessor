@@ -1,6 +1,6 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { buildFFmpegArgs } from "./buildArgs";
-import { buildFFmpegArgs as legacyBuildFFmpegArgs } from "./__tests__/legacyBuildArgs";
 import {
   allSubFilterNames,
   generateAllEnabledCase,
@@ -9,19 +9,26 @@ import {
 
 const CASE_COUNT = 500;
 
-describe("buildFFmpegArgs は移行前の実装と完全に一致する", () => {
-  it(`ランダム生成 ${CASE_COUNT} ケースで出力が同一`, () => {
+/**
+ * ゴールデンテスト。
+ *
+ * スキーマ駆動化の移行中は「移行前の実装を逐語コピーして凍結したもの」と 500 ケースを
+ * 突き合わせていたが、移行完了後は凍結コピーが負債になる（フィルタを1つ足すたびに
+ * 「凍結」ファイルの更新を強いられる）。同じカバレッジをスナップショットで保つため、
+ * 全ケースの出力を集約したハッシュを固定している。
+ *
+ * ハッシュが変わったら「意図せず ffmpeg の引数が変わった」ということ。差分の中身を
+ * 知りたいときは下の代表ケースのスナップショットを見る。意図的に出力を変えた場合のみ
+ * `vitest -u` で更新する。
+ */
+describe("ゴールデンテスト", () => {
+  it(`ランダム生成 ${CASE_COUNT} ケースの出力ハッシュが変わっていない`, () => {
+    const hash = createHash("sha256");
     for (let seed = 1; seed <= CASE_COUNT; seed++) {
-      const { options } = generateCase(seed);
-      expect(buildFFmpegArgs(options), `seed=${seed}`).toEqual(
-        legacyBuildFFmpegArgs(options),
-      );
+      hash.update(JSON.stringify(buildFFmpegArgs(generateCase(seed).options)));
+      hash.update("\n");
     }
-  });
-
-  it("全サブフィルタを同時に有効化しても同一（グループ間の適用順を固定）", () => {
-    const options = generateAllEnabledCase();
-    expect(buildFFmpegArgs(options)).toEqual(legacyBuildFFmpegArgs(options));
+    expect(hash.digest("hex")).toMatchSnapshot();
   });
 
   it("コーパスが全サブフィルタを少なくとも 1 回有効化している", () => {
@@ -32,10 +39,8 @@ describe("buildFFmpegArgs は移行前の実装と完全に一致する", () => 
     const missing = allSubFilterNames().filter((n) => !seen.has(n));
     expect(missing).toEqual([]);
   });
-});
 
-describe("ゴールデンスナップショット", () => {
-  it("全フィルタ有効時の引数列", () => {
+  it("全フィルタ有効時の引数列（グループ間の適用順を固定）", () => {
     expect(buildFFmpegArgs(generateAllEnabledCase())).toMatchSnapshot();
   });
 

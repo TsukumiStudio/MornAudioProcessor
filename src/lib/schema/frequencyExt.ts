@@ -15,23 +15,13 @@ import {
   fixed,
   fixedWith,
   k,
+  plainSelect,
   polesSelect,
   signedDb,
   widthTypeSelect,
   withUnit,
 } from "./helpers";
 
-/** 値そのままをラベルにする select（mode / dftype / tftype） */
-function plainSelect<V extends string>(
-  def: V,
-  values: readonly V[],
-): SelectControl<V> {
-  return {
-    control: "select",
-    default: def,
-    options: values.map((value) => ({ value, label: value })),
-  };
-}
 
 /** allpass の order（polesSelect と違いラベルは数値そのまま） */
 function orderSelect(def: 1 | 2): SelectControl<1 | 2> {
