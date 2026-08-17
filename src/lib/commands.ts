@@ -580,6 +580,36 @@ function isLosslessOutput(outputName: string): boolean {
 }
 
 /**
+ * 正規化パスの最終出力に使うビット解像度を決める。
+ *
+ * 中間ファイルは精度確保のため pcm_f32le にしているが、そのまま可逆形式へ書くと
+ * ユーザーが何も指定していないのに 16bit の入力が 32bit 出力になり、サイズが倍になる。
+ * 指定が無い場合は入力のビット解像度に合わせる。
+ */
+function inheritBitDepth(
+  options: ProcessingOptions,
+  outputName: string,
+): string | undefined {
+  if (options.bit_depth) return options.bit_depth;
+  if (!isLosslessOutput(outputName)) return undefined;
+
+  const input = options.input_bit_depth;
+  if (!input) return undefined;
+
+  const isFloat = input.includes("float");
+  const bits = input.match(/^(\d+)/)?.[1];
+  if (!bits) return undefined;
+
+  const ext = getFileExtension(outputName).toLowerCase();
+  if (ext === "flac") {
+    // flac は float を扱えないので整数へ落とす（32bit float → s32）
+    return bits === "16" || bits === "24" ? bits : "32";
+  }
+  if (isFloat) return bits === "64" ? "f64" : "f32";
+  return bits === "16" || bits === "24" || bits === "32" ? bits : undefined;
+}
+
+/**
  * 正規化用の中間ファイル生成引数を組み立てる。
  * 音量・メタデータ・アルバムアート・出力エンコード指定は最終パスの担当なので中間からは外す。
  * （特にアルバムアートを渡すと WAV muxer が映像ストリームを扱えず exec が失敗する）
@@ -833,7 +863,12 @@ async function runProcessFile(
         finalArgs.push("-ar", options.input_sample_rate.toString());
       }
       appendAlbumArtArgs(finalArgs, options, outputName);
-      appendOutputEncoding(finalArgs, options, outputName);
+      // 中間が f32 なので、指定が無ければ入力のビット解像度を引き継ぐ
+      appendOutputEncoding(
+        finalArgs,
+        { ...options, bit_depth: inheritBitDepth(options, outputName) },
+        outputName,
+      );
       appendMetadata(finalArgs, options);
       finalArgs.push("-y", outputName);
       await execChecked(ff, finalArgs);
@@ -861,7 +896,12 @@ async function runProcessFile(
         }
         args.push("-af", `volume=${db}dB`);
         appendAlbumArtArgs(args, options, outputName);
-        appendOutputEncoding(args, options, outputName);
+        // 中間が f32 なので、指定が無ければ入力のビット解像度を引き継ぐ
+        appendOutputEncoding(
+          args,
+          { ...options, bit_depth: inheritBitDepth(options, outputName) },
+          outputName,
+        );
         appendMetadata(args, options);
         args.push("-y", outputName);
         return args;
