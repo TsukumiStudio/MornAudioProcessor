@@ -45,10 +45,18 @@
 </div>
 
 <style>
+  /* 複数列に並べると項目の境界が分かりにくいので、軽くカード化する */
   .filter-section {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid #2b2b24;
+    border-radius: 6px;
+    /* 段組みの途中で項目が分断されないようにする */
+    break-inside: avoid;
+    margin-bottom: 12px;
+    background: #17170f;
   }
   .checkbox-label {
     display: flex;

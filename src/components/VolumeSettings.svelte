@@ -167,12 +167,15 @@
   }
   .radio-group {
     display: flex;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 6px 12px;
   }
   .radio-label {
     display: flex;
     align-items: center;
     gap: 4px;
+    /* 段組みで幅が狭くなっても項目の途中で改行させない */
+    white-space: nowrap;
     font-size: 0.85rem;
     color: #d4d4d8;
     cursor: pointer;

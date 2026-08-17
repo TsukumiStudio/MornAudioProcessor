@@ -42,10 +42,10 @@
 </div>
 
 <style>
+  /* 親 (.tab-content.filters) のグリッドへ各項目を直接並べるため箱を消す。
+     カスタムプロパティは display:contents でも子に継承される。 */
   .dynamics-settings {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+    display: contents;
     --param-label-width: 80px;
     --slider-value-width: 72px;
   }
