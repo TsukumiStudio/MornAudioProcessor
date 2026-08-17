@@ -1,0 +1,99 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ゴールデンスナップショット > 代表的なランダムケースの引数列 > seed-1 1`] = `
+[
+  "-i",
+  "input.flac",
+  "-af",
+  "silenceremove=start_periods=1:start_silence=0:start_threshold=-50dB:stop_periods=-1:stop_silence=0:stop_threshold=-45dB,equalizer=f=0:t=q:w=-70:g=1000:mix=0.5,highpass=f=-70:t=q:w=1000:p=1:mix=100,lowpass=f=1000:t=k:w=-1:p=2:mix=1,chorus=99999:100:99999:0.0625:99999:1,flanger=delay=0.0625:depth=0.5:regen=0.0625:width=12:speed=99999:shape=triangular:phase=1:interp=quadratic,vibrato=f=0:d=1000,atempo=0.5,asetrate=98813,atempo=0.9715319411536059,aresample=96000,bass=g=100:f=-70:t=h:w=12:p=2:m=-1,tiltshelf=g=0.5:f=0.0625:t=s:w=1000:p=1:m=1,allpass=f=0.707:t=q:w=0.5:m=0.0625:o=1,dynaudnorm=framelen=0:gausssize=99999:peak=12:maxgain=12:targetrms=-70:coupling=1:correctdc=1:altboundary=0:compress=1:threshold=100:overlap=0.5,speechnorm=peak=0.5:expansion=12:compression=99999:threshold=0:raise=1:fall=-1:invert=0:link=1:rms=12,apsyclip=level_in=0.5:level_out=99999:clip=-70:diff=0:adaptive=0:iterations=1:level=0,aloop=loop=0.0625:size=0.0625:start=-70,afreqshift=shift=-70:level=2.828:order=-1,deesser=i=1:m=0.707:f=0.0625:s=o,crossfeed=strength=0.707:range=12:slope=-1:level_in=1:level_out=0.5,volume=0dB",
+  "-ar",
+  "44100",
+  "-y",
+  "out.mp3",
+]
+`;
+
+exports[`ゴールデンスナップショット > 代表的なランダムケースの引数列 > seed-7 1`] = `
+[
+  "-i",
+  "input.wav",
+  "-ss",
+  "00:00:01",
+  "-to",
+  "00:00:05",
+  "-af",
+  "afftdn=nr=12:nf=-25,acompressor=threshold=-1:ratio=1:attack=1:release=0.5:makeup=12:knee=1000:mode=downward:detection=rms:link=maximum:mix=-70:level_in=100,agate=threshold=1000:ratio=0.707:range=2.828:attack=2.828:release=99999:makeup=100:knee=100:mode=downward:detection=peak:link=average,flanger=delay=99999:depth=0.0625:regen=-70:width=99999:speed=99999:shape=triangular:phase=1000:interp=linear,stereowiden=delay=12:feedback=0.707:crossfeed=100:drymix=1000,dialoguenhance=original=2.828:enhance=99999:voice=100,pan=mono|c0=0.5*c0+0.5*c1",
+  "-y",
+  "out.mp3",
+]
+`;
+
+exports[`ゴールデンスナップショット > 代表的なランダムケースの引数列 > seed-42 1`] = `
+[
+  "-i",
+  "input.flac",
+  "-i",
+  "cover_art.jpg",
+  "-map",
+  "0:a",
+  "-map",
+  "1:v",
+  "-af",
+  "equalizer=f=2.828:t=k:w=0:g=-70:mix=0,highpass=f=0:t=h:w=1000:p=2:mix=0,alimiter=limit=1:attack=0:release=0.707:level=1:level_in=-70:level_out=0.0625:asc=1:asc_level=100,tremolo=f=-70:d=0.0625,bass=g=100:f=0.5:t=o:w=0.707:p=1:m=-1,treble=g=12:f=99999:t=h:w=-1:p=2:m=0.5,bandreject=f=2.828:t=q:w=100:m=0.707,adeclip=window=0.0625:overlap=1:arorder=0.707:threshold=0:hsize=1:method=save,stereotools=level_in=2.828:level_out=2.828:balance_in=0.5:balance_out=0.5:softclip=1:mutel=0:muter=1:phasel=0:phaser=0:mode=ms>ll:slev=2.828:sbal=1:mlev=0:mpan=1:base=99999:delay=0:sclevel=0.0625:phase=2.828:bmode_in=amplitude:bmode_out=balance,pan=mono|c0=0.5*c0+0.5*c1",
+  "-c:v",
+  "copy",
+  "-ar",
+  "44100",
+  "-c:a",
+  "pcm_s16le",
+  "-y",
+  "out.wav",
+]
+`;
+
+exports[`ゴールデンスナップショット > 代表的なランダムケースの引数列 > seed-99 1`] = `
+[
+  "-i",
+  "input.mp3",
+  "-af",
+  "silenceremove=start_periods=1:start_silence=0:start_threshold=-50dB:stop_periods=-1:stop_silence=0:stop_threshold=-45dB,bandpass=f=2.828:t=s:w=100:mix=1000:csg=1,alimiter=limit=100:attack=1:release=0.5:level=0:level_in=0.707:level_out=0.707:asc=0:asc_level=0,agate=threshold=0:ratio=12:range=12:attack=100:release=0:makeup=99999:knee=1000:mode=downward:detection=rms:link=maximum,atempo=-70,afade=t=in:st=99999:d=2.828:curve=-70/-70|-60/-20|1/0:silence=1000:unity=0.0625,acrusher=level_in=0.707:level_out=12:bits=1:mix=-1:mode=log:dc=0.5:aa=12:samples=0:lfo=0:lforange=1:lforate=-70,aexciter=level_in=100:level_out=0.5:amount=1:drive=2.828:blend=-70:freq=100:ceil=12:listen=1",
+  "-b:a",
+  "320k",
+  "-ar",
+  "22050",
+  "-sample_fmt",
+  "s32",
+  "-bits_per_raw_sample",
+  "24",
+  "-metadata",
+  "title=t",
+  "-metadata",
+  "artist=a",
+  "-y",
+  "out.flac",
+]
+`;
+
+exports[`ゴールデンスナップショット > 代表的なランダムケースの引数列 > seed-123 1`] = `
+[
+  "-i",
+  "input.ogg",
+  "-af",
+  "acompressor=threshold=0.707:ratio=-70:attack=0:release=12:makeup=2.828:knee=1000:mode=downward:detection=rms:link=average:mix=12:level_in=0.0625,bass=g=-70:f=2.828:t=q:w=0.5:p=1:m=1000,treble=g=-1:f=0.0625:t=o:w=-70:p=2:m=0.707,bandreject=f=0.5:t=o:w=0:m=0,allpass=f=0:t=s:w=-1:m=0.707:o=1,asupercut=cutoff=-1:order=12:level=0.707,afade=t=in:st=0.5:d=-70:curve=0.8:silence=-70:unity=0.5,areverse,afreqshift=shift=99999:level=0.707:order=0.707,apulsator=level_in=99999:level_out=2.828:mode=sawup:amount=99999:offset_l=0.5:offset_r=-1:width=99999:timing=hz:bpm=0.707:ms=0.0625:hz=0.707,dialoguenhance=original=100:enhance=-1:voice=2.828",
+  "-b:a",
+  "320k",
+  "-y",
+  "out.mp3",
+]
+`;
+
+exports[`ゴールデンスナップショット > 全フィルタ有効時の引数列 1`] = `
+[
+  "-i",
+  "input.wav",
+  "-af",
+  "equalizer=f=0:t=q:w=99999:g=99999:mix=0.5,highpass=f=100:t=q:w=99999:p=1:mix=2.828,lowpass=f=0.707:t=o:w=1:p=1:mix=0,bandpass=f=1000:t=o:w=-1:mix=0:csg=1,acompressor=threshold=12:ratio=1000:attack=-1:release=100:makeup=2.828:knee=1000:mode=upward:detection=peak:link=maximum:mix=1:level_in=0.5,alimiter=limit=-1:attack=1:release=100:level=0:level_in=1:level_out=0.5:asc=1:asc_level=-70,agate=threshold=-1:ratio=99999:range=100:attack=0.707:release=0.5:makeup=100:knee=99999:mode=upward:detection=rms:link=maximum,aecho=0.0625:0.5:0.0625:12,chorus=100:1:100:99999:1:99999,flanger=delay=0.707:depth=1:regen=0.707:width=0.5:speed=-70:shape=triangular:phase=12:interp=linear,aphaser=in_gain=0.0625:out_gain=0.5:delay=1:decay=0.5:speed=0.0625:type=triangular,tremolo=f=-70:d=12,vibrato=f=1:d=1,atempo=0.5,asetrate=773,atempo=57.0175179609817,aresample=44100,bass=g=0:f=-1:t=h:w=99999:p=1:m=100,treble=g=1:f=0.5:t=k:w=1000:p=2:m=-1,bandreject=f=1:t=q:w=12:m=0.5,tiltshelf=g=0.5:f=0.0625:t=k:w=-70:p=2:m=-1,allpass=f=0.5:t=o:w=0.5:m=99999:o=2,asubboost=dry=0.5:wet=0:boost=0:decay=1000:feedback=0.707:cutoff=-1:slope=1:delay=1000,asubcut=cutoff=0.0625:order=12:level=2.828,asupercut=cutoff=0.707:order=-1:level=12,adynamicequalizer=threshold=1000:dfrequency=0:dqfactor=-1:tfrequency=-70:tqfactor=-70:attack=0:release=0.5:ratio=2.828:makeup=0.0625:range=-70:mode=cutbelow:dftype=lowpass:tftype=lowshelf,dynaudnorm=framelen=0.5:gausssize=-70:peak=0.5:maxgain=12:targetrms=99999:coupling=1:correctdc=1:altboundary=1:compress=100:threshold=0:overlap=12,speechnorm=peak=1000:expansion=0.5:compression=1:threshold=99999:raise=99999:fall=0:invert=0:link=1:rms=0.707,compand=attacks=-70/-70|-60/-20|1/0:decays=0.8:points=1500|0|500:soft-knee=1:gain=0.5:volume=99999:delay=-70,asoftclip=type=hard:threshold=1:output=-70:param=-1:oversample=1,apsyclip=level_in=-70:level_out=0:clip=0:diff=1:adaptive=0.707:iterations=100:level=0,afade=t=in:st=0:d=1000:curve=-70/-70|-60/-20|1/0:silence=12:unity=0.707,afade=t=out:st=100:d=0.707:curve=0:silence=12:unity=12,acrusher=level_in=0.0625:level_out=2.828:bits=1000:mix=0:mode=lin:dc=100:aa=-1:samples=0.0625:lfo=0:lforange=1:lforate=-1,aexciter=level_in=0:level_out=1000:amount=99999:drive=0.707:blend=0.0625:freq=0.0625:ceil=-70:listen=1,crystalizer=i=2.828:c=1,areverse,aloop=loop=-70:size=0:start=-70,afreqshift=shift=1:level=1:order=99999,apulsator=level_in=0:level_out=2.828:mode=triangle:amount=99999:offset_l=-70:offset_r=2.828:width=0:timing=ms:bpm=0:ms=1000:hz=99999,adelay=1500|0|500:all=0,compensationdelay=mm=-70:cm=0.707:m=-70:dry=12:wet=1000:temp=0.0625,dcshift=shift=1000:limitergain=100,apad=pad_dur=1:whole_dur=0.0625,adeclick=window=0.5:overlap=100:arorder=0:threshold=-1:burst=0:method=add,adeclip=window=0.5:overlap=0.707:arorder=100:threshold=1:hsize=-70:method=save,afwtdn=sigma=2.828:levels=1:wavet=rbior68:percent=0.0625:profile=1:adaptive=0:samples=99999:softness=-70,deesser=i=-70:m=-70:f=-70:s=e,stereotools=level_in=0:level_out=12:balance_in=2.828:balance_out=1000:softclip=1:mutel=0:muter=0:phasel=1:phaser=1:mode=lr>rl:slev=12:sbal=0.707:mlev=99999:mpan=-70:base=12:delay=2.828:sclevel=0:phase=0.707:bmode_in=balance:bmode_out=amplitude,stereowiden=delay=12:feedback=0.707:crossfeed=12:drymix=-1,extrastereo=m=0.5:c=1,crossfeed=strength=-70:range=-70:slope=0:level_in=0.707:level_out=-1,haas=level_in=12:level_out=-1:side_gain=2.828:middle_source=left:middle_phase=1:left_delay=0.707:left_balance=-70:left_gain=99999:left_phase=1:right_delay=-70:right_balance=12:right_gain=0.707:right_phase=1,dialoguenhance=original=-70:enhance=-70:voice=12",
+  "-y",
+  "out.wav",
+]
+`;
