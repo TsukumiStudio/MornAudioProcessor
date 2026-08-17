@@ -22,7 +22,8 @@
 
   type Tab = "basic" | "frequency" | "dynamics" | "effects" | "channel" | "repair" | "stereo" | "metadata";
   let activeTab = $state<Tab>("basic");
-  let showAdvanced = $state(false);
+  // 処理側 (+page.svelte) が「詳細フィルタを適用するか」の判定に使うため store で持つ
+  let showAdvanced = $derived(appState.showAdvanced);
 
   // 一度も開いていないタブは初期マウントしない (巨大な設定コンポーネントの構築を遅延させる)。
   // 一度開いたタブはアンマウントせず class:hidden で隠すだけにして、入力値を保持する (keep-alive)。
@@ -63,7 +64,7 @@
       <label class="advanced-toggle">
         <input
           type="checkbox"
-          bind:checked={showAdvanced}
+          bind:checked={appState.showAdvanced}
           disabled={appState.isProcessing}
         />
         高度な機能

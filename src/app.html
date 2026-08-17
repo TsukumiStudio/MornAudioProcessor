@@ -5,6 +5,10 @@
     <link rel="icon" href="%sveltekit.assets%/icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MornAudioProcessor</title>
+    <!--
+      旧 coi-serviceworker の登録を解除するためだけに読み込んでいる。
+      次のリリースでこのブロックと static/coi-serviceworker.js を削除する。
+    -->
     <script>
       if (window.location.hostname !== "localhost") {
         const s = document.createElement("script");

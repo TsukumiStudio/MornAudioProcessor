@@ -113,6 +113,10 @@
       entry.progress = 0;
     }
 
+    // 「高度な機能」が OFF のときは詳細タブの設定を一切適用しない。
+    // UI 上どこからも確認できない設定が効き続けるのを防ぐため。
+    const advanced = appState.showAdvanced;
+
     for (const entry of appState.files) {
       const outputName = buildOutputName(entry.file.name);
       const options: ProcessingOptions = {
@@ -128,20 +132,25 @@
         sample_rate: appState.sampleRate ?? undefined,
         silence_remove: appState.silenceRemove ?? undefined,
         noise_reduce: appState.noiseReduce ?? undefined,
-        frequency_filter: appState.frequencyFilter ?? undefined,
-        dynamics_filter: appState.dynamicsFilter ?? undefined,
-        effect_filter: appState.effectFilter ?? undefined,
-        channel_filter: appState.channelFilter ?? undefined,
         input_sample_rate: entry.file.sample_rate ? parseInt(entry.file.sample_rate, 10) : undefined,
-        frequency_filter_ext: appState.frequencyFilterExt ?? undefined,
-        dynamics_filter_ext: appState.dynamicsFilterExt ?? undefined,
-        effect_filter_ext: appState.effectFilterExt ?? undefined,
-        repair_filter: appState.repairFilter ?? undefined,
-        stereo_filter: appState.stereoFilter ?? undefined,
         bit_depth: appState.bitDepth || undefined,
         ogg_quality: appState.oggQuality,
-        metadata: resolveMetadataForFile(entry.id, appState.metadataSettings),
-        album_art: appState.albumArtMap[entry.id] ?? appState.albumArt ?? undefined,
+        // --- ここから下は詳細タブ（高度な機能）の設定 ---
+        frequency_filter: (advanced ? appState.frequencyFilter : null) ?? undefined,
+        dynamics_filter: (advanced ? appState.dynamicsFilter : null) ?? undefined,
+        effect_filter: (advanced ? appState.effectFilter : null) ?? undefined,
+        channel_filter: (advanced ? appState.channelFilter : null) ?? undefined,
+        frequency_filter_ext: (advanced ? appState.frequencyFilterExt : null) ?? undefined,
+        dynamics_filter_ext: (advanced ? appState.dynamicsFilterExt : null) ?? undefined,
+        effect_filter_ext: (advanced ? appState.effectFilterExt : null) ?? undefined,
+        repair_filter: (advanced ? appState.repairFilter : null) ?? undefined,
+        stereo_filter: (advanced ? appState.stereoFilter : null) ?? undefined,
+        metadata: advanced
+          ? resolveMetadataForFile(entry.id, appState.metadataSettings)
+          : undefined,
+        album_art: advanced
+          ? (appState.albumArtMap[entry.id] ?? appState.albumArt ?? undefined)
+          : undefined,
       };
 
       const result = await processFile(options, (progress) => {

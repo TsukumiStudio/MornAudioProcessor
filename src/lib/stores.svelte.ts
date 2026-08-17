@@ -51,6 +51,9 @@ let compareB = $state<CompareSelection | null>(null);
 let isProcessing = $state(false);
 let isDragging = $state(false);
 let settingsResetCounter = $state(0);
+// 「高度な機能」トグル。OFF のときは詳細フィルタを処理に適用しない
+// （UI から確認できない設定が効き続けるのを防ぐ）
+let showAdvanced = $state(false);
 
 /**
  * ファイルエントリが持つアルバムアートの objectURL を解放する。
@@ -260,6 +263,12 @@ export function getAppState() {
     },
     get settingsResetCounter() {
       return settingsResetCounter;
+    },
+    get showAdvanced() {
+      return showAdvanced;
+    },
+    set showAdvanced(v) {
+      showAdvanced = v;
     },
     resetSettings() {
       outputFormat = "same";
