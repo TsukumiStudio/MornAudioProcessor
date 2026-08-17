@@ -150,6 +150,7 @@
         silence_remove: appState.silenceRemove ?? undefined,
         noise_reduce: appState.noiseReduce ?? undefined,
         input_sample_rate: entry.file.sample_rate ? parseInt(entry.file.sample_rate, 10) : undefined,
+        input_bit_depth: entry.file.bit_depth ?? undefined,
         bit_depth: appState.bitDepth || undefined,
         ogg_quality: appState.oggQuality,
         // --- ここから下は詳細タブ（高度な機能）の設定 ---

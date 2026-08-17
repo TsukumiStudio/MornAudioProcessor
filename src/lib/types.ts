@@ -627,6 +627,8 @@ export interface ProcessingOptions {
   effect_filter?: EffectFilterOption;
   channel_filter?: ChannelFilterOption;
   input_sample_rate?: number;
+  /** 入力のビット解像度表示（"16-bit" など）。正規化時に出力へ引き継ぐのに使う */
+  input_bit_depth?: string;
   frequency_filter_ext?: FrequencyFilterExtOption;
   dynamics_filter_ext?: DynamicsFilterExtOption;
   effect_filter_ext?: EffectFilterExtOption;
