@@ -36,7 +36,7 @@
 </script>
 
 <div class="setting-group">
-  <label>ノイズ除去</label>
+  <span class="group-label">ノイズ除去</span>
   <div class="radio-group">
     <label class="radio-label">
       <input
@@ -120,7 +120,7 @@
     flex-direction: column;
     gap: 6px;
   }
-  .setting-group > label:first-child {
+  .setting-group > .group-label {
     font-size: 0.8rem;
     font-weight: 500;
     color: #a3a3a3;

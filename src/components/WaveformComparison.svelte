@@ -77,8 +77,20 @@
     }
   }
 
+  // 非表示タブでは requestAnimationFrame が発火しないため、
+  // タイマーと競争させて必ず再開できるようにする（これが無いと
+  // 抽出中にタブを切り替えたまま戻らないと「デコード中...」で止まる）
   function nextFrame(): Promise<void> {
-    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        resolve();
+      };
+      requestAnimationFrame(finish);
+      setTimeout(finish, 50);
+    });
   }
 
   // 列単位でチャンク分割し、一定時間ごとに yield してメインスレッドを解放する
@@ -189,8 +201,15 @@
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    canvas.width = TARGET_WIDTH;
-    canvas.height = CANVAS_HEIGHT;
+    // canvas の実ピクセル数を「表示幅 × devicePixelRatio」に合わせる。
+    // 固定 800px を CSS で引き伸ばしていたため、Retina でなくても
+    // レイアウト幅（実測 1216px）まで補間されてぼやけていた。
+    // 座標系は TARGET_WIDTH × CANVAS_HEIGHT のまま使えるよう transform で伸ばす。
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const cssWidth = Math.max(Math.round(canvas.getBoundingClientRect().width), 1);
+    canvas.width = Math.round(cssWidth * dpr);
+    canvas.height = Math.round(CANVAS_HEIGHT * dpr);
+    ctx.setTransform(canvas.width / TARGET_WIDTH, 0, 0, dpr, 0, 0);
 
     ctx.clearRect(0, 0, TARGET_WIDTH, CANVAS_HEIGHT);
 
@@ -300,19 +319,34 @@
     });
   });
 
+  function drawA() {
+    if (canvasA && peaksA) drawWaveform(canvasA, peaksA, "#a3a825");
+  }
+
+  function drawB() {
+    if (canvasB && peaksB) drawWaveform(canvasB, peaksB, "#22c55e");
+  }
+
+  // canvas の実ピクセル数を表示幅から決めているので、幅が変わったら描き直す。
+  // ピークは再計算しないので、リサイズのコストは描画だけ。
+  function watchWidth(el: HTMLElement) {
+    if (typeof ResizeObserver === "undefined") return;
+    let last = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === last) return;
+      last = el.clientWidth;
+      drawA();
+      drawB();
+    });
+    ro.observe(el);
+    return { destroy: () => ro.disconnect() };
+  }
+
   // Draw A when peaks or canvas change
-  $effect(() => {
-    if (canvasA && peaksA) {
-      drawWaveform(canvasA, peaksA, "#a3a825");
-    }
-  });
+  $effect(drawA);
 
   // Draw B when peaks or canvas change
-  $effect(() => {
-    if (canvasB && peaksB) {
-      drawWaveform(canvasB, peaksB, "#22c55e");
-    }
-  });
+  $effect(drawB);
 
   function clearA() {
     appState.compareA = null;
@@ -324,7 +358,7 @@
 </script>
 
 {#if visible}
-  <div class="waveform-comparison">
+  <div class="waveform-comparison" use:watchWidth>
     <div class="comparison-header">
       <span class="comparison-title">波形比較</span>
     </div>

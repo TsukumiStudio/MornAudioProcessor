@@ -34,7 +34,7 @@
 
 <div class="channel-settings">
   <div class="setting-group">
-    <label class="group-label">チャンネル変換</label>
+    <span class="group-label">チャンネル変換</span>
     <div class="radio-group">
       <label class="radio-label">
         <input
@@ -67,7 +67,7 @@
   </div>
 
   <div class="setting-group" class:disabled={conversion !== "to_stereo"}>
-    <label class="group-label">パンバランス</label>
+    <span class="group-label">パンバランス</span>
     <div class="balance-row">
       <span class="balance-label">L</span>
       <input

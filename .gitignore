@@ -8,3 +8,8 @@ node_modules
 !.env.example
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# ローカルの作業ファイル（リポジトリの配信物ではない）
+/FFmpeg Filters Documentation.pdf
+/TsukumiStudio_v2_IconOnly_2048_WhiteBack.png
+/settings.mapc

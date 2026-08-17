@@ -6,14 +6,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MornAudioProcessor</title>
     <!--
-      旧 coi-serviceworker の登録を解除するためだけに読み込んでいる。
-      次のリリースでこのブロックと static/coi-serviceworker.js を削除する。
+      かつて cross-origin isolation のために coi-serviceworker を登録していた。
+      同梱の @ffmpeg/core はシングルスレッド版で SharedArrayBuffer を使わないため
+      不要と分かったので廃止したが、過去に登録済みの訪問者のブラウザには残るため、
+      ここで登録解除する。SW が無ければ何もしないので、いずれ削除してよい。
+
+      制御下のページで登録解除すると進行中の ffmpeg コア取得が中断されるので、
+      その場合だけ一度リロードして SW 無しでやり直させる（sessionStorage で
+      無限ループを防ぐ）。
     -->
     <script>
-      if (window.location.hostname !== "localhost") {
-        const s = document.createElement("script");
-        s.src = "%sveltekit.assets%/coi-serviceworker.js";
-        document.head.appendChild(s);
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker
+          .getRegistrations()
+          .then(async (regs) => {
+            if (regs.length === 0) return;
+            await Promise.all(regs.map((r) => r.unregister().catch(() => {})));
+            const key = "coi-sw-removed-reload";
+            if (navigator.serviceWorker.controller && !sessionStorage.getItem(key)) {
+              sessionStorage.setItem(key, "1");
+              location.reload();
+            }
+          })
+          .catch(() => {});
       }
     </script>
     %sveltekit.head%

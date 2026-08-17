@@ -121,30 +121,6 @@
     color: #ef4444;
     font-weight: 600;
   }
-  .progress-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .progress-bar {
-    flex: 1;
-    height: 6px;
-    background: #28281f;
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .progress-fill {
-    height: 100%;
-    background: #a3a825;
-    border-radius: 3px;
-    transition: width 0.3s;
-  }
-  .progress-text {
-    font-size: 0.75rem;
-    color: #a3a3a3;
-    min-width: 36px;
-    text-align: right;
-  }
   .status-badge {
     font-size: 0.75rem;
     padding: 2px 8px;
