@@ -1,4 +1,14 @@
 import type { ProcessingOptions } from "../types";
+import { frequencyGroup } from "../schema/frequency";
+import { serializeGroup } from "../schema/helpers";
+import type { FilterDef } from "../schema/types";
+
+/** スキーマ定義を serializeGroup が受け取れる形に落とす（型の見かけを揃えるだけ） */
+function schemaGroup(
+  group: Record<string, unknown>,
+): Record<string, FilterDef<{ enabled: boolean }, never>> {
+  return group as Record<string, FilterDef<{ enabled: boolean }, never>>;
+}
 
 /**
  * ffmpeg の引数組み立て（純粋関数）。
@@ -50,25 +60,11 @@ export function buildFFmpegArgs(options: ProcessingOptions): string[] {
     }
   }
 
-  if (options.frequency_filter) {
-    const ff = options.frequency_filter;
-    if (ff.equalizer.enabled) {
-      const eq = ff.equalizer;
-      filters.push(`equalizer=f=${eq.frequency}:t=${eq.width_type}:w=${eq.width}:g=${eq.gain}:mix=${eq.mix}`);
-    }
-    if (ff.highpass.enabled) {
-      const hp = ff.highpass;
-      filters.push(`highpass=f=${hp.frequency}:t=${hp.width_type}:w=${hp.width}:p=${hp.poles}:mix=${hp.mix}`);
-    }
-    if (ff.lowpass.enabled) {
-      const lp = ff.lowpass;
-      filters.push(`lowpass=f=${lp.frequency}:t=${lp.width_type}:w=${lp.width}:p=${lp.poles}:mix=${lp.mix}`);
-    }
-    if (ff.bandpass.enabled) {
-      const bp = ff.bandpass;
-      filters.push(`bandpass=f=${bp.frequency}:t=${bp.width_type}:w=${bp.width}:mix=${bp.mix}:csg=${bp.csg ? 1 : 0}`);
-    }
-  }
+  filters.push(
+    ...serializeGroup(schemaGroup(frequencyGroup), options.frequency_filter, {
+      input_sample_rate: options.input_sample_rate,
+    }),
+  );
 
   if (options.dynamics_filter) {
     const df = options.dynamics_filter;
