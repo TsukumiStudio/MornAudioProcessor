@@ -52,10 +52,6 @@ export function cancelProcessing() {
   terminateAll();
 }
 
-export function isCancelRequested(): boolean {
-  return cancelRequested;
-}
-
 export function initFFmpeg(
   onProgress?: (message: string) => void,
 ): Promise<FfmpegInfo> {

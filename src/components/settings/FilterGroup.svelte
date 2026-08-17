@@ -12,7 +12,9 @@
     processing: boolean;
   } = $props();
 
-  const paramKeys = Object.keys(def.params);
+  // def が差し替わってもパラメータ一覧が追従するよう $derived にする
+  // （const で受けると初回の def だけを捕まえてしまう）
+  const paramKeys = $derived(Object.keys(def.params));
 </script>
 
 <div class="filter-section">
