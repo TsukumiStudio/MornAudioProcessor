@@ -94,25 +94,53 @@ function kWeightingFilters(sampleRate: number): [Biquad, Biquad] {
 }
 
 /**
- * 出力は倍精度で持つ。Float32 に丸めると広帯域信号で誤差が積み上がり、
- * ffmpeg (libebur128 は double 演算) との差が 0.2 LU 程度まで開く。
+ * K 特性フィルタを通しながら 100ms ごとの二乗和を貯める。
+ *
+ * フィルタ結果を全長分保持しない（libebur128 と同じサブブロック方式）。
+ * 5 分ステレオだと Float64 の中間配列だけで 200MB 以上になり、長尺ファイルで
+ * メモリを圧迫するため、1 パスでサブブロックの和まで畳み込む。
+ * 演算は倍精度で行う。Float32 に丸めると広帯域信号で誤差が積み上がり、
+ * ffmpeg (libebur128 も double 演算) との差が 0.2 LU 程度まで開く。
  */
-function applyBiquad(data: Float32Array | Float64Array, f: Biquad): Float64Array {
-  const out = new Float64Array(data.length);
-  let x1 = 0;
-  let x2 = 0;
-  let y1 = 0;
-  let y2 = 0;
-  for (let i = 0; i < data.length; i++) {
-    const x0 = data[i];
-    const y0 = f.b0 * x0 + f.b1 * x1 + f.b2 * x2 - f.a1 * y1 - f.a2 * y2;
-    out[i] = y0;
-    x2 = x1;
-    x1 = x0;
-    y2 = y1;
-    y1 = y0;
+function subBlockSums(
+  data: Float32Array,
+  shelf: Biquad,
+  highpass: Biquad,
+  subBlockSize: number,
+): Float64Array {
+  const count = Math.floor(data.length / subBlockSize);
+  const sums = new Float64Array(count);
+
+  // 1 段目（シェルビング）と 2 段目（ハイパス）の状態
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  let z1 = 0, z2 = 0, w1 = 0, w2 = 0;
+
+  for (let block = 0; block < count; block++) {
+    const start = block * subBlockSize;
+    const end = start + subBlockSize;
+    let acc = 0;
+    for (let i = start; i < end; i++) {
+      const x0 = data[i];
+      const y0 =
+        shelf.b0 * x0 + shelf.b1 * x1 + shelf.b2 * x2 - shelf.a1 * y1 - shelf.a2 * y2;
+      x2 = x1;
+      x1 = x0;
+      y2 = y1;
+      y1 = y0;
+
+      const w0 =
+        highpass.b0 * y0 + highpass.b1 * z1 + highpass.b2 * z2 -
+        highpass.a1 * w1 - highpass.a2 * w2;
+      z2 = z1;
+      z1 = y0;
+      w2 = w1;
+      w1 = w0;
+
+      acc += w0 * w0;
+    }
+    sums[block] = acc;
   }
-  return out;
+  return sums;
 }
 
 /** チャンネルごとの重み。5.1 のサラウンドは +1.5dB だが、本アプリは最大 2ch */
@@ -132,26 +160,25 @@ export function analyzeLufs(
 ): number | null {
   if (channels.length === 0 || sampleRate <= 0) return null;
 
-  const blockSize = Math.round(sampleRate * 0.4);
-  const hopSize = Math.round(blockSize / 4);
+  // 400ms ブロックを 100ms サブブロック 4 個の和として求める（75% オーバーラップ）
+  const subBlockSize = Math.round(sampleRate * 0.1);
+  const blockSize = subBlockSize * 4;
   const length = channels[0].length;
   if (length < blockSize) return null; // 400ms 未満は測れない
 
   const [shelf, highpass] = kWeightingFilters(sampleRate);
-  const weighted: Float64Array[] = channels.map((data) =>
-    applyBiquad(applyBiquad(data, shelf), highpass),
+  const perChannel = channels.map((data) =>
+    subBlockSums(data, shelf, highpass, subBlockSize),
   );
 
-  // 各ブロックの平均二乗（チャンネル重み付き和）
+  const subBlockCount = Math.min(...perChannel.map((s) => s.length));
   const blockPowers: number[] = [];
-  for (let start = 0; start + blockSize <= length; start += hopSize) {
+  for (let start = 0; start + 4 <= subBlockCount; start++) {
     let power = 0;
-    for (let ch = 0; ch < weighted.length; ch++) {
-      const data = weighted[ch];
-      let sum = 0;
-      for (let i = start; i < start + blockSize; i++) {
-        sum += data[i] * data[i];
-      }
+    for (let ch = 0; ch < perChannel.length; ch++) {
+      const sums = perChannel[ch];
+      const sum =
+        sums[start] + sums[start + 1] + sums[start + 2] + sums[start + 3];
       power += channelWeight(ch) * (sum / blockSize);
     }
     blockPowers.push(power);

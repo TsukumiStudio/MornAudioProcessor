@@ -28,6 +28,75 @@ export interface DecodedAudio {
   durationMs: number;
 }
 
+export interface Loudness {
+  peakDb: number;
+  rmsDb: number;
+  lufs: number | null;
+}
+
+/**
+ * 計測用の Worker。使い回すが、失敗したら破棄して次回作り直す。
+ * Worker が使えない環境ではメインスレッドで計測する（値は同じ）。
+ */
+let worker: Worker | null = null;
+let workerBroken = false;
+
+function getWorker(): Worker | null {
+  if (workerBroken) return null;
+  if (worker) return worker;
+  try {
+    worker = new Worker(new URL("./loudness-worker.ts", import.meta.url), {
+      type: "module",
+    });
+    worker.onerror = () => {
+      workerBroken = true;
+      worker?.terminate();
+      worker = null;
+    };
+    return worker;
+  } catch {
+    workerBroken = true;
+    return null;
+  }
+}
+
+/**
+ * PCM から peak/RMS/LUFS を求める。
+ *
+ * 計測はメインスレッドだと 5 分ステレオで約 1.5 秒 UI を塞ぐため Worker に渡す。
+ * PCM は転送（ゼロコピー）するので、呼び出し後に channels の中身は使えない。
+ */
+export async function measureLoudness(
+  decoded: DecodedAudio,
+): Promise<Loudness> {
+  const w = getWorker();
+  if (!w) {
+    const { analyzeLufs, analyzePeakRms } = await import("./loudness");
+    const { peakDb, rmsDb } = analyzePeakRms(decoded.channels);
+    return { peakDb, rmsDb, lufs: analyzeLufs(decoded.channels, decoded.sampleRate) };
+  }
+
+  return new Promise<Loudness>((resolve, reject) => {
+    const onMessage = (event: MessageEvent<Loudness>) => {
+      w.removeEventListener("message", onMessage);
+      w.removeEventListener("error", onError);
+      resolve(event.data);
+    };
+    const onError = (event: ErrorEvent) => {
+      w.removeEventListener("message", onMessage);
+      w.removeEventListener("error", onError);
+      reject(event.error ?? new Error("計測 Worker が失敗しました"));
+    };
+    w.addEventListener("message", onMessage);
+    w.addEventListener("error", onError);
+    w.postMessage(
+      { channels: decoded.channels, sampleRate: decoded.sampleRate },
+      // PCM を転送してコピーを避ける（デコード結果はこの後使わない）
+      decoded.channels.map((c) => c.buffer),
+    );
+  });
+}
+
 /**
  * ファイルをデコードしてチャンネルごとの PCM を返す。
  * デコードできない場合（対応していないコーデックなど）は null を返す。
