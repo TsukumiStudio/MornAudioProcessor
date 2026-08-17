@@ -1,11 +1,32 @@
+<script lang="ts" module>
+  const TARGET_WIDTH = 800;
+  const CANVAS_HEIGHT = 80;
+
+  // ピーク抽出を区切る間隔（ms）。これを超えたらメインスレッドへ制御を返す
+  const YIELD_INTERVAL_MS = 8;
+  // ピーク抽出のチャンクあたりの列数（この単位で経過時間をチェックする）
+  const CHUNK_COLUMNS = 50;
+  // キャッシュ上限（LRU）。溢れた分は破棄して Blob 参照を解放する
+  const PEAK_CACHE_LIMIT = 8;
+
+  // デコード専用の AudioContext。選択のたびに生成せずモジュール内で共有する
+  let sharedAudioCtx: AudioContext | null = null;
+
+  function getSharedAudioContext(): AudioContext {
+    // 一度 closed になると decodeAudioData が常に失敗するため作り直す
+    // （iOS Safari の割り込みやブラウザのリソース回収で閉じられることがある）
+    if (!sharedAudioCtx || sharedAudioCtx.state === "closed") {
+      sharedAudioCtx = new AudioContext();
+    }
+    return sharedAudioCtx;
+  }
+</script>
+
 <script lang="ts">
   import { getAppState } from "$lib/stores.svelte";
   import type { CompareSelection } from "$lib/types";
 
   const appState = getAppState();
-
-  const TARGET_WIDTH = 800;
-  const CANVAS_HEIGHT = 80;
 
   let canvasA: HTMLCanvasElement | undefined = $state();
   let canvasB: HTMLCanvasElement | undefined = $state();
@@ -14,7 +35,16 @@
   let peaksB = $state<Float32Array | null>(null);
 
   // キー → { peaks, source参照 } でキャッシュ（source が変わったら無効化）
+  // Map の挿入順を使った LRU。上限を超えたら最古のエントリを消す
   const peakCache = new Map<string, { peaks: Float32Array; source: File | Blob }>();
+
+  // A/B それぞれの世代トークン。最新の値と一致する結果だけを state に反映する
+  let generationA = 0;
+  let generationB = 0;
+
+  // 直近にデコードを開始した対象。同一対象での無駄な再デコードを防ぐ
+  let lastTargetA: { key: string; source: File | Blob } | null = null;
+  let lastTargetB: { key: string; source: File | Blob } | null = null;
 
   let visible = $derived(appState.compareA !== null || appState.compareB !== null);
 
@@ -47,14 +77,35 @@
     }
   }
 
-  function extractPeaks(buffer: AudioBuffer, targetWidth: number): Float32Array {
+  function nextFrame(): Promise<void> {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  // 列単位でチャンク分割し、一定時間ごとに yield してメインスレッドを解放する
+  // isCurrent が false になったら計算を打ち切って null を返す
+  async function extractPeaks(
+    buffer: AudioBuffer,
+    targetWidth: number,
+    isCurrent: () => boolean,
+  ): Promise<Float32Array | null> {
     const numChannels = buffer.numberOfChannels;
     const length = buffer.length;
     const peaks = new Float32Array(targetWidth * 2);
+    const channels: Float32Array[] = [];
+    for (let ch = 0; ch < numChannels; ch++) {
+      channels.push(buffer.getChannelData(ch));
+    }
 
     const samplesPerPixel = length / targetWidth;
+    let chunkStartTime = performance.now();
 
     for (let col = 0; col < targetWidth; col++) {
+      if (col > 0 && col % CHUNK_COLUMNS === 0 && performance.now() - chunkStartTime >= YIELD_INTERVAL_MS) {
+        await nextFrame();
+        if (!isCurrent()) return null;
+        chunkStartTime = performance.now();
+      }
+
       const startSample = Math.floor(col * samplesPerPixel);
       const endSample = Math.min(Math.floor((col + 1) * samplesPerPixel), length);
 
@@ -62,7 +113,7 @@
       let max = -1.0;
 
       for (let ch = 0; ch < numChannels; ch++) {
-        const channelData = buffer.getChannelData(ch);
+        const channelData = channels[ch];
         for (let s = startSample; s < endSample; s++) {
           const sample = channelData[s];
           if (sample < min) min = sample;
@@ -84,20 +135,46 @@
     return peaks;
   }
 
-  async function decodePeaks(sel: CompareSelection, source: File | Blob): Promise<Float32Array | null> {
-    const key = getCacheKey(sel);
+  function getCachedPeaks(key: string, source: File | Blob): Float32Array | null {
     const cached = peakCache.get(key);
     // ソース参照が同じならキャッシュを使う（再処理で Blob が変わったら無効化）
-    if (cached && cached.source === source) return cached.peaks;
+    if (!cached || cached.source !== source) return null;
+    // 参照されたら末尾へ移して最近使ったものとして扱う
+    peakCache.delete(key);
+    peakCache.set(key, cached);
+    return cached.peaks;
+  }
 
-    const arrayBuffer = await source.arrayBuffer();
+  function storePeaks(key: string, source: File | Blob, peaks: Float32Array) {
+    peakCache.delete(key);
+    peakCache.set(key, { peaks, source });
+    while (peakCache.size > PEAK_CACHE_LIMIT) {
+      const oldest = peakCache.keys().next();
+      if (oldest.done) break;
+      peakCache.delete(oldest.value);
+    }
+  }
+
+  async function decodePeaks(
+    sel: CompareSelection,
+    source: File | Blob,
+    isCurrent: () => boolean,
+  ): Promise<Float32Array | null> {
+    const key = getCacheKey(sel);
+    const hit = getCachedPeaks(key, source);
+    if (hit) return hit;
 
     try {
-      const audioCtx = new AudioContext();
-      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-      const peaks = extractPeaks(audioBuffer, TARGET_WIDTH);
-      await audioCtx.close();
-      peakCache.set(key, { peaks, source });
+      const arrayBuffer = await source.arrayBuffer();
+      if (!isCurrent()) return null;
+
+      const audioBuffer = await getSharedAudioContext().decodeAudioData(arrayBuffer);
+      if (!isCurrent()) return null;
+
+      const peaks = await extractPeaks(audioBuffer, TARGET_WIDTH, isCurrent);
+      if (!peaks) return null;
+
+      storePeaks(key, source, peaks);
       return peaks;
     } catch {
       return null;
@@ -147,15 +224,40 @@
   $effect(() => {
     const sel = appState.compareA;
     if (!sel) {
+      generationA++;
+      lastTargetA = null;
       peaksA = null;
       return;
     }
     const source = getAudioSource(sel);
     if (!source) {
+      generationA++;
+      lastTargetA = null;
       peaksA = null;
       return;
     }
-    decodePeaks(sel, source).then((p) => {
+    const key = getCacheKey(sel);
+    // files / outputFiles の配列が作り直されただけなら再デコードしない
+    // （そのままだと進行中のデコードが毎回打ち切られてやり直しになる）
+    if (lastTargetA && lastTargetA.key === key && lastTargetA.source === source) {
+      return;
+    }
+    lastTargetA = { key, source };
+
+    const cached = getCachedPeaks(key, source);
+    if (cached) {
+      generationA++;
+      peaksA = cached;
+      return;
+    }
+    // 対象が変わったので古い波形は消す（新しいラベルの下に前のファイルの波形を残さない）
+    peaksA = null;
+
+    const generation = ++generationA;
+    const isCurrent = () => generationA === generation;
+    decodePeaks(sel, source, isCurrent).then((p) => {
+      // 途中で選択が変わっていたら古い結果を捨てる（後勝ち）
+      if (!isCurrent()) return;
       peaksA = p;
     });
   });
@@ -164,15 +266,36 @@
   $effect(() => {
     const sel = appState.compareB;
     if (!sel) {
+      generationB++;
+      lastTargetB = null;
       peaksB = null;
       return;
     }
     const source = getAudioSource(sel);
     if (!source) {
+      generationB++;
+      lastTargetB = null;
       peaksB = null;
       return;
     }
-    decodePeaks(sel, source).then((p) => {
+    const key = getCacheKey(sel);
+    if (lastTargetB && lastTargetB.key === key && lastTargetB.source === source) {
+      return;
+    }
+    lastTargetB = { key, source };
+
+    const cached = getCachedPeaks(key, source);
+    if (cached) {
+      generationB++;
+      peaksB = cached;
+      return;
+    }
+    peaksB = null;
+
+    const generation = ++generationB;
+    const isCurrent = () => generationB === generation;
+    decodePeaks(sel, source, isCurrent).then((p) => {
+      if (!isCurrent()) return;
       peaksB = p;
     });
   });

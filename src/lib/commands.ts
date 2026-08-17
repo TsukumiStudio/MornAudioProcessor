@@ -11,37 +11,70 @@ import type {
 import { getFileExtension } from "./utils";
 
 let ffmpeg: FFmpeg | null = null;
+let readyPromise: Promise<FfmpegInfo> | null = null;
 
-export async function initFFmpeg(
-  onProgress?: (message: string) => void,
-): Promise<FfmpegInfo> {
-  ffmpeg = new FFmpeg();
-  ffmpeg.on("log", ({ message }) => {
-    console.log("[ffmpeg]", message);
-  });
+/**
+ * ffmpeg インスタンスは同時に 1 コマンドしか実行できず、VFS 上の一時ファイル名も
+ * 固定なため、exec を伴う操作は必ず直列化する。
+ * （読み込み中に複数ファイルを投入すると、待ち行列が一斉に走り出して
+ *   probe_input.* を互いに上書きし、別ファイルの解析結果が混ざる）
+ */
+let ffmpegQueue: Promise<unknown> = Promise.resolve();
 
-  onProgress?.("Worker を起動中...");
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const result = ffmpegQueue.then(task, task);
+  // 失敗しても後続を止めない
+  ffmpegQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
 
-  const loadPromise = ffmpeg.load({
+/** ffmpeg のログをコンソールへ流すか。処理中は数千行になるため本番では抑制する */
+const LOG_TO_CONSOLE = import.meta.env.DEV;
+
+function coreConfig() {
+  return {
     coreURL: `${base}/ffmpeg-core.js`,
     wasmURL: `${base}/ffmpeg-core.wasm`,
     classWorkerURL: `${base}/ffmpeg-worker/worker.js`,
-  });
+  };
+}
 
-  onProgress?.("FFmpeg コアを読み込み中...");
+function createFFmpeg(): FFmpeg {
+  const instance = new FFmpeg();
+  if (LOG_TO_CONSOLE) {
+    instance.on("log", ({ message }) => {
+      console.log("[ffmpeg]", message);
+    });
+  }
+  return instance;
+}
 
-  // タイムアウト付きで待機（30秒）
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(
-      () => reject(new Error("FFmpeg の読み込みがタイムアウトしました（30秒）")),
-      30000,
-    ),
-  );
+export function initFFmpeg(
+  onProgress?: (message: string) => void,
+): Promise<FfmpegInfo> {
+  readyPromise = (async () => {
+    ffmpeg = createFFmpeg();
+    onProgress?.("Worker を起動中...");
+    const loading = ffmpeg.load(coreConfig());
+    onProgress?.("FFmpeg コアを読み込み中...");
+    // コアは gzip 転送でも 10MB 超あるため、固定タイムアウトは設けない
+    // （低速回線で必ず失敗してしまうため）。失敗はネットワークエラーで検知する。
+    await loading;
+    onProgress?.("初期化完了");
+    return { version: "ffmpeg.wasm" };
+  })();
+  return readyPromise;
+}
 
-  await Promise.race([loadPromise, timeout]);
-
-  onProgress?.("初期化完了");
-  return { version: "ffmpeg.wasm" };
+/** コアの読み込み完了を待つ。読み込み中に投入されたファイルの処理に使う */
+export function waitForFFmpeg(): Promise<FfmpegInfo> {
+  if (!readyPromise) {
+    return Promise.reject(new Error("FFmpeg の初期化が開始されていません"));
+  }
+  return readyPromise;
 }
 
 function getFFmpeg(): FFmpeg {
@@ -49,44 +82,53 @@ function getFFmpeg(): FFmpeg {
   return ffmpeg;
 }
 
-export async function resetFFmpeg(): Promise<void> {
-  if (ffmpeg) {
-    ffmpeg.terminate();
-  }
-  ffmpeg = new FFmpeg();
-  ffmpeg.on("log", ({ message }) => {
-    console.log("[ffmpeg]", message);
-  });
-  await ffmpeg.load({
-    coreURL: `${base}/ffmpeg-core.js`,
-    wasmURL: `${base}/ffmpeg-core.wasm`,
-    classWorkerURL: `${base}/ffmpeg-worker/worker.js`,
+export function resetFFmpeg(): Promise<void> {
+  return enqueue(async () => {
+    if (ffmpeg) {
+      ffmpeg.terminate();
+    }
+    ffmpeg = createFFmpeg();
+    const loading = ffmpeg.load(coreConfig());
+    // 再ロード中に waitForFFmpeg() が「準備済み」と誤答しないよう差し替える
+    readyPromise = loading.then(() => ({ version: "ffmpeg.wasm" }));
+    await loading;
   });
 }
 
-export async function getAudioInfo(file: File): Promise<AudioFileInfo> {
-  const ff = getFFmpeg();
-  const tempName = "probe_input" + getExtWithDot(file.name);
-
-  await ff.writeFile(tempName, await fetchFile(file));
-  const info = await probeAudioInfo(ff, tempName, file.size);
-
-  // 埋め込みアルバムアートの抽出を試みる
-  let albumArtUrl: string | null = null;
-  try {
+export function getAudioInfo(file: File): Promise<AudioFileInfo> {
+  return enqueue(async () => {
+    // コア読み込み中に投入されたファイルも受け付けられるよう、ここで完了を待つ
+    await waitForFFmpeg();
+    const ff = getFFmpeg();
+    const tempName = "probe_input" + getExtWithDot(file.name);
     const artOut = "probe_art_extract.jpg";
-    await ff.exec(["-i", tempName, "-an", "-vcodec", "copy", "-y", artOut]);
-    const artData = await ff.readFile(artOut);
-    if (artData instanceof Uint8Array && artData.length > 100) {
-      const mime = artData[0] === 0x89 && artData[1] === 0x50 ? "image/png" : "image/jpeg";
-      albumArtUrl = URL.createObjectURL(new Blob([artData], { type: mime }));
+
+    try {
+      await ff.writeFile(tempName, await fetchFile(file));
+      const info = await probeAudioInfo(ff, tempName, file.size);
+
+      // 埋め込みアルバムアートの抽出を試みる（無い場合は exec が非 0 で終わる）
+      let albumArtUrl: string | null = null;
+      try {
+        const code = await ff.exec(["-i", tempName, "-an", "-vcodec", "copy", "-y", artOut]);
+        if (code === 0) {
+          const artData = await ff.readFile(artOut);
+          if (artData instanceof Uint8Array && artData.length > 100) {
+            const mime = artData[0] === 0x89 && artData[1] === 0x50 ? "image/png" : "image/jpeg";
+            albumArtUrl = URL.createObjectURL(new Blob([artData], { type: mime }));
+          }
+        }
+      } catch {}
+
+      return { ...info, name: file.name, albumArtUrl };
+    } finally {
+      for (const name of [tempName, artOut]) {
+        try {
+          await ff.deleteFile(name);
+        } catch {}
+      }
     }
-    try { await ff.deleteFile(artOut); } catch {}
-  } catch {}
-
-  await ff.deleteFile(tempName);
-
-  return { ...info, name: file.name, albumArtUrl };
+  });
 }
 
 function buildFFmpegArgs(options: ProcessingOptions): string[] {
@@ -513,8 +555,12 @@ async function detectVolume(
     if (rmsMatch) rms = parseFloat(rmsMatch[1]);
   };
   ff.on("log", logHandler);
-  await ff.exec(["-i", inputName, "-af", "volumedetect", "-f", "null", "-"]);
-  ff.off("log", logHandler);
+  try {
+    // 計測失敗を検知せず 0 を使うと、無加工同然の出力を「成功」として返してしまう
+    await execChecked(ff, ["-i", inputName, "-af", "volumedetect", "-f", "null", "-"]);
+  } finally {
+    ff.off("log", logHandler);
+  }
   return { peak, rms };
 }
 
@@ -550,12 +596,16 @@ async function detectLufs(
     if (offsetMatch) target_offset = parseFloat(offsetMatch[1]);
   };
   ff.on("log", logHandler);
-  await ff.exec([
-    "-i", inputName,
-    "-af", `loudnorm=I=${targetI}:TP=${targetTP}:print_format=json`,
-    "-f", "null", "-",
-  ]);
-  ff.off("log", logHandler);
+  try {
+    // 計測失敗を検知せず 0 を使うと、約 14dB 小さい出力を「成功」として返してしまう
+    await execChecked(ff, [
+      "-i", inputName,
+      "-af", `loudnorm=I=${targetI}:TP=${targetTP}:print_format=json`,
+      "-f", "null", "-",
+    ]);
+  } finally {
+    ff.off("log", logHandler);
+  }
   return { input_i, input_tp, input_lra, input_thresh, target_offset };
 }
 
@@ -571,6 +621,7 @@ async function probeAudioInfo(
   let bitDepth: string | null = null;
   let peakDb = 0;
   let rmsDb = 0;
+  let lufsValue: number | null = null;
   let parsedMetadata: Record<string, string> = {};
   let inMetadata = false;
   let metadataCaptured = false;
@@ -603,12 +654,16 @@ async function probeAudioInfo(
       durationMs = (h * 3600 + m * 60 + s) * 1000 + cs * 10;
     }
     // Stream: Audio: codec, 44100 Hz, stereo, s16, ...
-    const streamMatch = message.match(
-      /Audio:.*?,\s*(\d+)\s*Hz,\s*(\w+)/,
-    );
-    if (streamMatch) {
-      sampleRate = streamMatch[1];
-      channels = streamMatch[2] === "mono" ? 1 : 2;
+    // 入力ストリームの行（最初の1件）だけを使う。loudnorm は出力を 192kHz に
+    // アップサンプルするため、後続の Output 行を拾うとサンプルレートが化ける。
+    if (sampleRate === null) {
+      const streamMatch = message.match(
+        /Audio:.*?,\s*(\d+)\s*Hz,\s*(\w+)/,
+      );
+      if (streamMatch) {
+        sampleRate = streamMatch[1];
+        channels = streamMatch[2] === "mono" ? 1 : 2;
+      }
     }
     // codec name: pcm_s24le, pcm_f32le, etc. (入力ストリームの最初の検出のみ使用)
     if (!bitDepth) {
@@ -649,29 +704,30 @@ async function probeAudioInfo(
     if (rmsMatch) {
       rmsDb = parseFloat(rmsMatch[1]);
     }
-  };
-
-  ff.on("log", logHandler);
-  await ff.exec(["-i", fileName, "-af", "volumedetect", "-f", "null", "-"]);
-  ff.off("log", logHandler);
-
-  // LUFS計測（loudnormフィルタで Integrated Loudness を取得）
-  let lufsValue: number | null = null;
-  const lufsHandler = ({ message }: { message: string }) => {
+    // LUFS（loudnorm の Integrated Loudness）
     const iMatch = message.match(/"input_i"\s*:\s*"([-\d.]+)"/);
     if (iMatch) lufsValue = parseFloat(iMatch[1]);
   };
-  ff.on("log", lufsHandler);
+
+  // peak/RMS と LUFS を 1 パスで計測する。
+  // volumedetect を loudnorm より前に置くことで、loudnorm の利得適用前の値を測る。
+  ff.on("log", logHandler);
   try {
-    await ff.exec([
+    // exec は失敗しても reject せず非 0 を返すだけなので、コードで分岐する
+    const code = await ff.exec([
       "-i", fileName,
-      "-af", "loudnorm=print_format=json",
+      "-af", "volumedetect,loudnorm=print_format=json",
       "-f", "null", "-",
     ]);
+    if (code !== 0) {
+      // loudnorm を連結できない入力向けフォールバック: volumedetect のみで再計測
+      await ff.exec(["-i", fileName, "-af", "volumedetect", "-f", "null", "-"]);
+    }
   } catch {
-    // loudnormフィルタが利用できない場合はスキップ
+    // 表示用の情報なので、計測できなくても処理は続行する
+  } finally {
+    ff.off("log", logHandler);
   }
-  ff.off("log", lufsHandler);
 
   const ext = getFileExtension(fileName).toLowerCase();
   const estimatedBitrate =
@@ -737,37 +793,94 @@ function getMimeType(name: string): string {
   }
 }
 
-export async function processFile(
+/** 正規化時の中間ファイル名 */
+const INTERMEDIATE_NAME = "temp_intermediate.wav";
+
+/**
+ * 変換用の exec。終了コードを検査して失敗を例外にする。
+ * ffmpeg.wasm の exec は失敗しても reject しないため、これを省くと
+ * 壊れた出力ファイルをそのまま「成功」として扱ってしまう。
+ */
+async function execChecked(ff: FFmpeg, args: string[]): Promise<void> {
+  const code = await ff.exec(args);
+  if (code !== 0) {
+    throw new Error(`ffmpeg の実行に失敗しました（終了コード ${code}）`);
+  }
+}
+
+/** 可逆（非圧縮・ロスレス）出力かどうか */
+function isLosslessOutput(outputName: string): boolean {
+  const ext = getFileExtension(outputName).toLowerCase();
+  return ext === "wav" || ext === "flac";
+}
+
+/**
+ * 正規化用の中間ファイル生成引数を組み立てる。
+ * 音量・メタデータ・アルバムアート・出力エンコード指定は最終パスの担当なので中間からは外す。
+ * （特にアルバムアートを渡すと WAV muxer が映像ストリームを扱えず exec が失敗する）
+ * 中間は pcm_f32le 固定で、量子化誤差と 0dBFS 超過時のクリップを避ける。
+ */
+function buildIntermediateArgs(options: ProcessingOptions): string[] {
+  return buildFFmpegArgs({
+    ...options,
+    output_name: INTERMEDIATE_NAME,
+    volume: undefined,
+    album_art: undefined,
+    metadata: undefined,
+    bitrate: undefined,
+    ogg_quality: undefined,
+    bit_depth: "f32",
+  });
+}
+
+export function processFile(
+  options: ProcessingOptions,
+  onProgress?: (info: ProgressInfo) => void,
+): Promise<ProcessingResult> {
+  // 解析（getAudioInfo）と同じキューに載せる。ffmpeg のログリスナーはインスタンス
+  // 共有なので、同時に走らせると計測値が互いに混ざって音量が狂う。
+  return enqueue(() => runProcessFile(options, onProgress));
+}
+
+async function runProcessFile(
   options: ProcessingOptions,
   onProgress?: (info: ProgressInfo) => void,
 ): Promise<ProcessingResult> {
   const ff = getFFmpeg();
   const inputName = "input" + getExtWithDot(options.input_file.name);
   const outputName = options.output_name;
+  const albumArtName = options.album_art
+    ? getAlbumArtVfsName(options.album_art)
+    : null;
+
+  // 正規化パスで中間ファイルを作ったか（作っていない場合の削除失敗を黙殺しないため）
+  let usedIntermediate = false;
+
+  // 進捗リスナー（finally で必ず解除する）
+  // ffmpeg.wasm の progress は高頻度に発火するため、丸めた % が変化した時だけ通知する
+  let lastPercentage = -1;
+  const progressHandler = ({
+    progress,
+  }: {
+    progress: number;
+    time: number;
+  }) => {
+    const percentage = Math.min(Math.round(progress * 100), 99);
+    if (percentage === lastPercentage) return;
+    lastPercentage = percentage;
+    onProgress?.({
+      file_name: options.input_file.name,
+      percentage,
+      status: "processing",
+    });
+  };
+  ff.on("progress", progressHandler);
 
   try {
-    // 進捗リスナー
-    const progressHandler = ({
-      progress,
-    }: {
-      progress: number;
-      time: number;
-    }) => {
-      onProgress?.({
-        file_name: options.input_file.name,
-        percentage: Math.min(Math.round(progress * 100), 99),
-        status: "processing",
-      });
-    };
-    ff.on("progress", progressHandler);
-
     // ファイル書き込み
     await ff.writeFile(inputName, await fetchFile(options.input_file));
 
     // アルバムアート書き込み
-    const albumArtName = options.album_art
-      ? getAlbumArtVfsName(options.album_art)
-      : null;
     if (options.album_art && albumArtName) {
       await ff.writeFile(albumArtName, await fetchFile(options.album_art));
     }
@@ -776,6 +889,7 @@ export async function processFile(
       options.volume?.type === "normalize_peak" ||
       options.volume?.type === "normalize_rms";
     const isLufsNormalize = options.volume?.type === "normalize_lufs";
+    usedIntermediate = isNormalize || isLufsNormalize;
 
     if (isStreamCopyEligible(options)) {
       // ストリームコピー: 音声データ無変更、メタデータ/アルバムアートのみ
@@ -790,20 +904,14 @@ export async function processFile(
       }
       appendMetadata(args, options);
       args.push("-y", outputName);
-      await ff.exec(args);
+      await execChecked(ff, args);
     } else if (isLufsNormalize) {
       // LUFS正規化（loudnorm 2パスモード）:
       // 1. 音量以外のフィルタを適用した中間WAVを生成
       // 2. loudnorm で計測
       // 3. 計測値を使って loudnorm 2パス目を実行（linear mode）
-      const tempName = "temp_intermediate.wav";
-      const intermediateOptions: ProcessingOptions = {
-        ...options,
-        output_name: tempName,
-        volume: undefined,
-      };
-      const intermediateArgs = buildFFmpegArgs(intermediateOptions);
-      await ff.exec(intermediateArgs);
+      const tempName = INTERMEDIATE_NAME;
+      await execChecked(ff, buildIntermediateArgs(options));
 
       const vol = options.volume!;
       const targetLufs = vol.type === "normalize_lufs" ? (vol.target_lufs ?? -14) : -14;
@@ -828,26 +936,26 @@ export async function processFile(
         finalArgs.push("-i", albumArtName, "-map", "0:a", "-map", "1:v");
       }
       finalArgs.push("-af", loudnormFilter);
+      // loudnorm は出力を 192kHz にアップサンプルするため、明示指定が無ければ元の
+      // サンプルレートへ戻す（放置すると 44.1kHz の WAV が 192kHz に化けて肥大する）。
+      // フィルタ連結（aresample）ではなく出力オプションで指定する:
+      // ffmpeg.wasm 5.1.4 では loudnorm,aresample の連結が
+      // "Failed to inject frame into filter network" で失敗するため。
+      if (!options.sample_rate && options.input_sample_rate) {
+        finalArgs.push("-ar", options.input_sample_rate.toString());
+      }
       appendAlbumArtArgs(finalArgs, options, outputName);
       appendOutputEncoding(finalArgs, options, outputName);
       appendMetadata(finalArgs, options);
       finalArgs.push("-y", outputName);
-      await ff.exec(finalArgs);
-
-      await ff.deleteFile(tempName);
+      await execChecked(ff, finalArgs);
     } else if (isNormalize) {
       // 正規化（補正パス付き）:
       // 1. 音量以外のフィルタを適用した中間WAVを生成
       // 2. 中間ファイルのピーク/RMSを計測し音量調整して出力
       // 3. 出力を実測し、ズレがあれば補正して再出力
-      const tempName = "temp_intermediate.wav";
-      const intermediateOptions: ProcessingOptions = {
-        ...options,
-        output_name: tempName,
-        volume: undefined,
-      };
-      const intermediateArgs = buildFFmpegArgs(intermediateOptions);
-      await ff.exec(intermediateArgs);
+      const tempName = INTERMEDIATE_NAME;
+      await execChecked(ff, buildIntermediateArgs(options));
 
       const vol = options.volume!;
       const targetDb = (vol.type === "normalize_peak" || vol.type === "normalize_rms")
@@ -873,47 +981,42 @@ export async function processFile(
 
       // 初回エンコード
       let appliedDb = Math.round(adjustment * 100) / 100;
-      await ff.exec(buildFinalArgs(appliedDb));
+      await execChecked(ff, buildFinalArgs(appliedDb));
 
-      // 補正パス（最大2回）: ロッシー形式でズレていたら再エンコード
-      for (let pass = 0; pass < 2; pass++) {
-        const actual = await detectVolume(ff, outputName);
-        const actualValue =
-          vol.type === "normalize_rms" ? actual.rms : actual.peak;
-        const error = targetDb - actualValue;
-        if (Math.abs(error) <= 0.1) break;
-        appliedDb = Math.round((appliedDb + error) * 100) / 100;
-        await ff.exec(buildFinalArgs(appliedDb));
+      // 補正パス（最大2回）: ロッシー形式でズレていたら再エンコード。
+      // 可逆出力では volume の適用結果が測定値どおりになるため検証デコードを省く。
+      if (!isLosslessOutput(outputName)) {
+        for (let pass = 0; pass < 2; pass++) {
+          const actual = await detectVolume(ff, outputName);
+          const actualValue =
+            vol.type === "normalize_rms" ? actual.rms : actual.peak;
+          const error = targetDb - actualValue;
+          if (Math.abs(error) <= 0.1) break;
+          appliedDb = Math.round((appliedDb + error) * 100) / 100;
+          await execChecked(ff, buildFinalArgs(appliedDb));
+        }
       }
-
-      await ff.deleteFile(tempName);
     } else {
       // 通常処理: 1パス
       const args = buildFFmpegArgs(options);
-      await ff.exec(args);
+      await execChecked(ff, args);
     }
 
     // 結果読み込み
     const data = await ff.readFile(outputName);
     const blob = new Blob([data], { type: getMimeType(outputName) });
 
+    // プローブの exec 進捗を対象ファイルの進捗として誤表示しないよう、先に解除する
+    ff.off("progress", progressHandler);
+
     // 出力ファイルのプローブ（クリーンアップ前）
     const outputInfo = await probeAudioInfo(ff, outputName, blob.size);
-
-    ff.off("progress", progressHandler);
 
     onProgress?.({
       file_name: options.input_file.name,
       percentage: 100,
       status: "completed",
     });
-
-    // クリーンアップ
-    await ff.deleteFile(inputName);
-    await ff.deleteFile(outputName);
-    if (albumArtName) {
-      try { await ff.deleteFile(albumArtName); } catch {}
-    }
 
     return {
       input_name: options.input_file.name,
@@ -930,17 +1033,6 @@ export async function processFile(
       status: "error",
     });
 
-    // クリーンアップ（エラー時）
-    try {
-      await ff.deleteFile(inputName);
-    } catch {}
-    try {
-      await ff.deleteFile(outputName);
-    } catch {}
-    if (albumArtName) {
-      try { await ff.deleteFile(albumArtName); } catch {}
-    }
-
     return {
       input_name: options.input_file.name,
       output_name: outputName,
@@ -949,6 +1041,17 @@ export async function processFile(
       error: e instanceof Error ? e.message : String(e),
       outputInfo: null,
     };
+  } finally {
+    // 進捗リスナーと VFS 上の一時ファイルは成功/失敗いずれでも必ず片付ける
+    ff.off("progress", progressHandler);
+    const cleanupTargets = [inputName, outputName, albumArtName];
+    if (usedIntermediate) cleanupTargets.push(INTERMEDIATE_NAME);
+    for (const name of cleanupTargets) {
+      if (!name) continue;
+      try {
+        await ff.deleteFile(name);
+      } catch {}
+    }
   }
 }
 
@@ -958,7 +1061,8 @@ export function downloadBlob(blob: Blob, fileName: string) {
   a.href = url;
   a.download = fileName;
   a.click();
-  URL.revokeObjectURL(url);
+  // 同期的に revoke すると Firefox / Safari でダウンロードが取りこぼされる
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 // オーディオプレビュー再生（同時に1つだけ再生）
