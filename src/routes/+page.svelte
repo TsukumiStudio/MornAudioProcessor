@@ -4,7 +4,12 @@
   import { base } from "$app/paths";
   import { getAppState } from "$lib/stores.svelte";
   import { ingestFiles } from "$lib/file-intake";
-  import { processFiles, resetFFmpeg, type ProcessingJob } from "$lib/commands";
+  import {
+    cancelProcessing,
+    processFiles,
+    resetFFmpeg,
+    type ProcessingJob,
+  } from "$lib/commands";
   import type { ProcessingOptions, AudioFormat, MetadataSettings } from "$lib/types";
   import { getFileExtension, replaceExtension } from "$lib/utils";
   import WaveformComparison from "../components/WaveformComparison.svelte";
@@ -15,6 +20,7 @@
   const appState = getAppState();
   let loadingMessage = $state("ffmpeg.wasm を読み込み中...");
   let processingError = $state<string | null>(null);
+  let cancelling = $state(false);
 
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
@@ -92,6 +98,7 @@
   async function startProcessing() {
     if (!canStart) return;
     processingError = null;
+    cancelling = false;
     appState.isProcessing = true;
     try {
       await runProcessing();
@@ -102,7 +109,13 @@
     } finally {
       // 例外が出てもボタンが永久に無効化されないようにする
       appState.isProcessing = false;
+      cancelling = false;
     }
+  }
+
+  function requestCancel() {
+    cancelling = true;
+    cancelProcessing();
   }
 
   async function runProcessing() {
@@ -184,6 +197,9 @@
         if (result.success && result.blob) {
           appState.updateFileProgress(inputName, 100, "completed");
           appState.addOutputResult(outputName, result.blob, result.outputInfo ?? null);
+        } else if (result.cancelled) {
+          // 中止はエラーではないので、やり直せるよう pending に戻す
+          appState.updateFileProgress(inputName, 0, "pending");
         } else {
           // error が空でも processing のまま固まらせない
           appState.updateFileProgress(inputName, 0, "error");
@@ -263,6 +279,11 @@
         >
           処理設定をリセット
         </button>
+        {#if appState.isProcessing}
+          <button class="cancel-btn" onclick={requestCancel} disabled={cancelling}>
+            {cancelling ? "中止しています..." : "中止"}
+          </button>
+        {/if}
         <button class="start-btn" onclick={startProcessing} disabled={!canStart}>
           {#if appState.isProcessing}
             処理中...
@@ -458,6 +479,24 @@
     color: #e4e4e7;
   }
   .reset-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .cancel-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: 1px solid #5a2b2b;
+    background: #2a1c1c;
+    color: #f0a3a3;
+    font-size: 0.9rem;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  .cancel-btn:hover:not(:disabled) {
+    background: #3a2424;
+    color: #ffc9c9;
+  }
+  .cancel-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
