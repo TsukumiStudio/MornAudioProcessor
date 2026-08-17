@@ -1,6 +1,5 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile } from "@ffmpeg/util";
-import { base } from "$app/paths";
 import type {
   FfmpegInfo,
   AudioFileInfo,
@@ -9,56 +8,25 @@ import type {
   ProgressInfo,
 } from "./types";
 import { getFileExtension } from "./utils";
+import {
+  disposeExtras,
+  discardSlot,
+  getPrimary,
+  getSlot,
+  maxParallel,
+  memoryBudgetBytes,
+  resetPool,
+} from "./ffmpeg-pool";
+import { MemoryGate, estimateJobBytes } from "./pool-policy";
 
-let ffmpeg: FFmpeg | null = null;
 let readyPromise: Promise<FfmpegInfo> | null = null;
-
-/**
- * ffmpeg インスタンスは同時に 1 コマンドしか実行できず、VFS 上の一時ファイル名も
- * 固定なため、exec を伴う操作は必ず直列化する。
- * （読み込み中に複数ファイルを投入すると、待ち行列が一斉に走り出して
- *   probe_input.* を互いに上書きし、別ファイルの解析結果が混ざる）
- */
-let ffmpegQueue: Promise<unknown> = Promise.resolve();
-
-function enqueue<T>(task: () => Promise<T>): Promise<T> {
-  const result = ffmpegQueue.then(task, task);
-  // 失敗しても後続を止めない
-  ffmpegQueue = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
-
-/** ffmpeg のログをコンソールへ流すか。処理中は数千行になるため本番では抑制する */
-const LOG_TO_CONSOLE = import.meta.env.DEV;
-
-function coreConfig() {
-  return {
-    coreURL: `${base}/ffmpeg-core.js`,
-    wasmURL: `${base}/ffmpeg-core.wasm`,
-    classWorkerURL: `${base}/ffmpeg-worker/worker.js`,
-  };
-}
-
-function createFFmpeg(): FFmpeg {
-  const instance = new FFmpeg();
-  if (LOG_TO_CONSOLE) {
-    instance.on("log", ({ message }) => {
-      console.log("[ffmpeg]", message);
-    });
-  }
-  return instance;
-}
 
 export function initFFmpeg(
   onProgress?: (message: string) => void,
 ): Promise<FfmpegInfo> {
   readyPromise = (async () => {
-    ffmpeg = createFFmpeg();
     onProgress?.("Worker を起動中...");
-    const loading = ffmpeg.load(coreConfig());
+    const loading = getPrimary().load();
     onProgress?.("FFmpeg コアを読み込み中...");
     // コアは gzip 転送でも 10MB 超あるため、固定タイムアウトは設けない
     // （低速回線で必ず失敗してしまうため）。失敗はネットワークエラーで検知する。
@@ -77,29 +45,16 @@ export function waitForFFmpeg(): Promise<FfmpegInfo> {
   return readyPromise;
 }
 
-function getFFmpeg(): FFmpeg {
-  if (!ffmpeg) throw new Error("FFmpeg not initialized");
-  return ffmpeg;
-}
-
 export function resetFFmpeg(): Promise<void> {
-  return enqueue(async () => {
-    if (ffmpeg) {
-      ffmpeg.terminate();
-    }
-    ffmpeg = createFFmpeg();
-    const loading = ffmpeg.load(coreConfig());
-    // 再ロード中に waitForFFmpeg() が「準備済み」と誤答しないよう差し替える
-    readyPromise = loading.then(() => ({ version: "ffmpeg.wasm" }));
-    await loading;
-  });
+  const reset = resetPool().then(() => ({ version: "ffmpeg.wasm" as const }));
+  // 再ロード中に waitForFFmpeg() が「準備済み」と誤答しないよう差し替える
+  readyPromise = reset;
+  return reset.then(() => undefined);
 }
 
 export function getAudioInfo(file: File): Promise<AudioFileInfo> {
-  return enqueue(async () => {
-    // コア読み込み中に投入されたファイルも受け付けられるよう、ここで完了を待つ
-    await waitForFFmpeg();
-    const ff = getFFmpeg();
+  // 解析は常に primary で行う。変換中に投入された場合も primary のキューで順番待ちする
+  return getPrimary().run(async (ff) => {
     const tempName = "probe_input" + getExtWithDot(file.name);
     const artOut = "probe_art_extract.jpg";
 
@@ -801,11 +756,18 @@ const INTERMEDIATE_NAME = "temp_intermediate.wav";
  * ffmpeg.wasm の exec は失敗しても reject しないため、これを省くと
  * 壊れた出力ファイルをそのまま「成功」として扱ってしまう。
  */
+const EXEC_FAILURE_PREFIX = "ffmpeg の実行に失敗しました";
+
 async function execChecked(ff: FFmpeg, args: string[]): Promise<void> {
   const code = await ff.exec(args);
   if (code !== 0) {
-    throw new Error(`ffmpeg の実行に失敗しました（終了コード ${code}）`);
+    throw new Error(`${EXEC_FAILURE_PREFIX}（終了コード ${code}）`);
   }
+}
+
+/** exec の終了コード起因の失敗（= インスタンスは健全）か */
+function isExecFailure(e: unknown): boolean {
+  return e instanceof Error && e.message.startsWith(EXEC_FAILURE_PREFIX);
 }
 
 /** 可逆（非圧縮・ロスレス）出力かどうか */
@@ -833,20 +795,119 @@ function buildIntermediateArgs(options: ProcessingOptions): string[] {
   });
 }
 
+export interface ProcessingJob {
+  options: ProcessingOptions;
+  /** メモリ見積り用。解析済みの情報が無ければ null でよい */
+  durationMs: number | null;
+  sampleRate: number | null;
+  channels: number | null;
+}
+
+/**
+ * 複数ファイルをインスタンスプールで並列処理する。
+ *
+ * 並列度は端末に応じて自動決定するが、各インスタンスが wasm ヒープと MEMFS 上の
+ * 入出力を抱えるため、メモリ見積りの合計が予算を超える場合は同時実行数を絞る。
+ * 巨大ファイルばかりの場合は自然に直列（従来と同じ挙動）へ退化する。
+ *
+ * 結果は完了順に onResult へ渡す（投入順とは一致しない）。
+ */
+export async function processFiles(
+  jobs: ProcessingJob[],
+  onProgress?: (info: ProgressInfo) => void,
+  onResult?: (result: ProcessingResult, index: number) => void,
+): Promise<void> {
+  if (jobs.length === 0) return;
+
+  const budget = memoryBudgetBytes();
+  const slots = Math.min(maxParallel(), jobs.length);
+
+  const estimates = jobs.map((job) =>
+    estimateJobBytes({
+      inputSize: job.options.input_file.size,
+      durationMs: job.durationMs,
+      sampleRate: job.sampleRate,
+      channels: job.channels,
+      usesIntermediate: usesIntermediateFile(job.options),
+    }),
+  );
+
+  if (import.meta.env.DEV) {
+    const mib = (n: number) => Math.round(n / 1024 / 1024) + "MiB";
+    console.info(
+      `[pool] 並列度=${slots} 予算=${mib(budget)} 見積り=[${estimates.map(mib).join(", ")}]`,
+    );
+  }
+
+  let nextIndex = 0;
+  const gate = new MemoryGate(budget);
+
+  const worker = async (slot: number) => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= jobs.length) return;
+
+      const bytes = estimates[index];
+      await gate.admit(bytes);
+      try {
+        const result = await getSlot(slot).run((ff) =>
+          runProcessFile(ff, jobs[index].options, onProgress),
+        );
+        if (result.instanceBroken) {
+          // メモリ確保失敗などでインスタンスが壊れた可能性がある。次の仕事の前に作り直す
+          discardSlot(slot);
+        }
+        onResult?.(result, index);
+      } catch (e) {
+        // run() 自体の失敗（インスタンス破棄など）はここに来る
+        discardSlot(slot);
+        onResult?.(
+          {
+            input_name: jobs[index].options.input_file.name,
+            output_name: jobs[index].options.output_name,
+            blob: null,
+            success: false,
+            error: e instanceof Error ? e.message : String(e),
+            outputInfo: null,
+          },
+          index,
+        );
+      } finally {
+        gate.release(bytes);
+      }
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: slots }, (_, slot) => worker(slot)));
+  } finally {
+    // Emscripten のヒープは縮まないので、バッチ後に primary 以外を解放する
+    disposeExtras();
+  }
+}
+
+/** 正規化パス（中間ファイルを作る）かどうか */
+function usesIntermediateFile(options: ProcessingOptions): boolean {
+  return (
+    options.volume?.type === "normalize_peak" ||
+    options.volume?.type === "normalize_rms" ||
+    options.volume?.type === "normalize_lufs"
+  );
+}
+
+/** 単一ファイルを primary で処理する（並列処理は processFiles を使う） */
 export function processFile(
   options: ProcessingOptions,
   onProgress?: (info: ProgressInfo) => void,
 ): Promise<ProcessingResult> {
-  // 解析（getAudioInfo）と同じキューに載せる。ffmpeg のログリスナーはインスタンス
-  // 共有なので、同時に走らせると計測値が互いに混ざって音量が狂う。
-  return enqueue(() => runProcessFile(options, onProgress));
+  return getPrimary().run((ff) => runProcessFile(ff, options, onProgress));
 }
 
 async function runProcessFile(
+  ff: FFmpeg,
   options: ProcessingOptions,
   onProgress?: (info: ProgressInfo) => void,
 ): Promise<ProcessingResult> {
-  const ff = getFFmpeg();
   const inputName = "input" + getExtWithDot(options.input_file.name);
   const outputName = options.output_name;
   const albumArtName = options.album_art
@@ -1040,6 +1101,9 @@ async function runProcessFile(
       success: false,
       error: e instanceof Error ? e.message : String(e),
       outputInfo: null,
+      // exec の終了コード起因はファイル固有の失敗。それ以外（terminate、メモリ確保
+      // 失敗、FS エラーなど）はインスタンス自体が壊れている可能性がある
+      instanceBroken: !isExecFailure(e),
     };
   } finally {
     // 進捗リスナーと VFS 上の一時ファイルは成功/失敗いずれでも必ず片付ける

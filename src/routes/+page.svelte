@@ -4,7 +4,7 @@
   import { base } from "$app/paths";
   import { getAppState } from "$lib/stores.svelte";
   import { ingestFiles } from "$lib/file-intake";
-  import { processFile, resetFFmpeg } from "$lib/commands";
+  import { processFiles, resetFFmpeg, type ProcessingJob } from "$lib/commands";
   import type { ProcessingOptions, AudioFormat, MetadataSettings } from "$lib/types";
   import { getFileExtension, replaceExtension } from "$lib/utils";
   import WaveformComparison from "../components/WaveformComparison.svelte";
@@ -117,6 +117,10 @@
     // UI 上どこからも確認できない設定が効き続けるのを防ぐため。
     const advanced = appState.showAdvanced;
 
+    const jobs: ProcessingJob[] = [];
+    const outputNames: string[] = [];
+    const inputNames: string[] = [];
+
     for (const entry of appState.files) {
       const outputName = buildOutputName(entry.file.name);
       const options: ProcessingOptions = {
@@ -153,23 +157,40 @@
           : undefined,
       };
 
-      const result = await processFile(options, (progress) => {
+      jobs.push({
+        options,
+        durationMs: entry.file.duration_ms || null,
+        sampleRate: entry.file.sample_rate
+          ? parseInt(entry.file.sample_rate, 10)
+          : null,
+        channels: entry.file.channels,
+      });
+      outputNames.push(outputName);
+      inputNames.push(entry.file.name);
+    }
+
+    await processFiles(
+      jobs,
+      (progress) => {
         appState.updateFileProgress(
           progress.file_name,
           progress.percentage,
           progress.status === "completed" ? "completed" : "processing",
         );
-      });
-
-      if (result.success && result.blob) {
-        appState.updateFileProgress(entry.file.name, 100, "completed");
-        appState.addOutputResult(outputName, result.blob, result.outputInfo ?? null);
-      } else {
-        // error が空でも processing のまま固まらせない
-        appState.updateFileProgress(entry.file.name, 0, "error");
-        appState.addOutputError(outputName, result.error || "不明なエラー");
-      }
-    }
+      },
+      (result, index) => {
+        const outputName = outputNames[index];
+        const inputName = inputNames[index];
+        if (result.success && result.blob) {
+          appState.updateFileProgress(inputName, 100, "completed");
+          appState.addOutputResult(outputName, result.blob, result.outputInfo ?? null);
+        } else {
+          // error が空でも processing のまま固まらせない
+          appState.updateFileProgress(inputName, 0, "error");
+          appState.addOutputError(outputName, result.error || "不明なエラー");
+        }
+      },
+    );
   }
 
   onMount(async () => {

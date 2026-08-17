@@ -651,6 +651,8 @@ export interface ProcessingResult {
   success: boolean;
   error: string | null;
   outputInfo: AudioFileInfo | null;
+  /** ffmpeg インスタンス自体が壊れている可能性がある失敗（並列処理で作り直す判断に使う） */
+  instanceBroken?: boolean;
 }
 
 export interface FileEntry {
