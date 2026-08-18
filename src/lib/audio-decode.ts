@@ -60,11 +60,19 @@ function getWorker(): Worker | null {
   }
 }
 
+/** 要求と応答を対応づける連番 */
+let nextRequestId = 1;
+
 /**
  * PCM から peak/RMS/LUFS を求める。
  *
  * 計測はメインスレッドだと 5 分ステレオで約 1.5 秒 UI を塞ぐため Worker に渡す。
  * PCM は転送（ゼロコピー）するので、呼び出し後に channels の中身は使えない。
+ *
+ * 解析は複数ファイルが並列に走るため、Worker には同時に複数の要求が飛ぶ。
+ * message イベントは登録された全リスナに配られるので、要求ごとに id を振って
+ * 自分の応答だけを拾う。これが無いと最初に返った 1 件の計測値が、待機中の
+ * 全ファイルの結果として使われてしまう。
  */
 export async function measureLoudness(
   decoded: DecodedAudio,
@@ -76,21 +84,28 @@ export async function measureLoudness(
     return { peakDb, rmsDb, lufs: analyzeLufs(decoded.channels, decoded.sampleRate) };
   }
 
+  const id = nextRequestId++;
+
   return new Promise<Loudness>((resolve, reject) => {
-    const onMessage = (event: MessageEvent<Loudness>) => {
+    const cleanup = () => {
       w.removeEventListener("message", onMessage);
       w.removeEventListener("error", onError);
-      resolve(event.data);
+    };
+    const onMessage = (event: MessageEvent<Loudness & { id: number }>) => {
+      // 他のファイルの応答は無視する（そのファイルのリスナが受け取る）
+      if (event.data?.id !== id) return;
+      cleanup();
+      const { peakDb, rmsDb, lufs } = event.data;
+      resolve({ peakDb, rmsDb, lufs });
     };
     const onError = (event: ErrorEvent) => {
-      w.removeEventListener("message", onMessage);
-      w.removeEventListener("error", onError);
+      cleanup();
       reject(event.error ?? new Error("計測 Worker が失敗しました"));
     };
     w.addEventListener("message", onMessage);
     w.addEventListener("error", onError);
     w.postMessage(
-      { channels: decoded.channels, sampleRate: decoded.sampleRate },
+      { id, channels: decoded.channels, sampleRate: decoded.sampleRate },
       // PCM を転送してコピーを避ける（デコード結果はこの後使わない）
       decoded.channels.map((c) => c.buffer),
     );
